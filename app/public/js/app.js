@@ -17,6 +17,18 @@ const ROLES = {
 };
 const POSITIONS = ['Goleiro','Zagueiro','Lateral direito','Lateral esquerdo','Volante','Meia','Ponta direita','Ponta esquerda','Atacante','Centroavante','Técnico','Árbitro'];
 const LEVELS = ['Várzea','Amador','Base','Semiprofissional','Profissional'];
+const POST_CATEGORIES = {
+  profissional: { emoji: '🏆', label: 'Jogo profissional/campeonato' },
+  pelada: { emoji: '🎉', label: 'Pelada/várzea' }
+};
+function postCategory(p) {
+  const c = POST_CATEGORIES[p.category] ? p.category : 'pelada';
+  return POST_CATEGORIES[c];
+}
+function postCategoryHtml(p) {
+  const c = postCategory(p);
+  return `<span class="post-cat cat-${p.category === 'profissional' ? 'prof' : 'pelada'}">${c.emoji} ${c.label}</span>`;
+}
 
 // ---------- helpers ----------
 async function api(path, opts = {}) {
@@ -75,7 +87,6 @@ function renderSplash() {
         <button class="btn btn-primary" onclick="renderRegister()">Criar minha conta</button>
         <button class="btn btn-outline" onclick="renderLogin()">Já tenho conta — Entrar</button>
       </div>
-      <p class="tag" style="margin-top:26px;font-size:12px">Teste com uma conta demo: thiago@demo.com / carlao@demo.com<br>(senha: 123456)</p>
     </div>`;
 }
 
@@ -362,7 +373,10 @@ function postHtml(p) {
       ${p.type === 'video'
         ? `<video class="media" src="${esc(p.url)}" controls playsinline preload="metadata"></video>`
         : `<img class="media" src="${esc(p.url)}" alt="">`}
-      <div class="body"><p class="caption">${esc(p.caption)}</p></div>
+      <div class="body">
+        <p class="caption">${esc(p.caption)}</p>
+        ${postCategoryHtml(p)}
+      </div>
       <div class="post-stars">
         <span class="ps-label">Avalie este lance:</span>
         <span class="ps-pick">${[1,2,3,4,5].map(i =>
@@ -397,6 +411,12 @@ function commentHtml(c) {
 
 const postCache = {};
 function cachePosts(posts) { posts.forEach(p => postCache[p.id] = p); }
+function mediaGridHtml(list) {
+  return `<div class="media-grid">${list.map(p => `
+    <button class="cell" onclick="openMedia('${esc(p.url)}', '${p.type}')">
+      ${p.type === 'video' ? `<video src="${esc(p.url)}" preload="metadata"></video><span class="play">▶️</span>` : `<img src="${esc(p.url)}">`}
+    </button>`).join('')}</div>`;
+}
 
 function toggleComments(id) {
   const box = document.getElementById('comments-' + id);
@@ -454,19 +474,38 @@ async function likePost(id) {
   }
 }
 async function delPost(id) { if (confirm('Excluir esta publicação?')) { await api(`/posts/${id}`, { method: 'DELETE' }); renderFeed(); toast('Publicação excluída'); } }
+function askPostCategory(cb) {
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>⚽ Onde foi esse lance?</h3>
+      <p class="sub" style="margin-bottom:14px">Escolha a categoria da sua publicação:</p>
+      <button class="btn btn-primary cat-opt" style="margin-bottom:10px" data-cat="profissional">🏆 Jogo profissional/campeonato</button>
+      <button class="btn btn-green cat-opt" style="margin-bottom:10px" data-cat="pelada">🎉 Pelada/várzea</button>
+      <button class="btn btn-outline mt" id="cat-cancel">Cancelar</button>
+    </div>`;
+  bg.querySelectorAll('.cat-opt').forEach(b => b.onclick = () => { bg.remove(); cb(b.dataset.cat); });
+  bg.querySelector('#cat-cancel').onclick = () => bg.remove();
+  bg.onclick = e => { if (e.target === bg) bg.remove(); };
+  document.body.appendChild(bg);
+}
 async function newPost(input) {
   const file = input.files[0];
   if (!file) return;
-  const caption = prompt('Escreva uma legenda (ex: "Golaço no jogo de domingo!"):') || '';
-  const fd = new FormData();
-  fd.append('file', file);
-  fd.append('caption', caption);
-  toast('Enviando… aguarde ⏳');
-  try {
-    await api('/posts', { method: 'POST', body: fd });
-    toast('Publicado! 🎉');
-    renderFeed();
-  } catch (e) { toast('Erro: ' + e.message); }
+  askPostCategory(async (category) => {
+    const caption = prompt('Escreva uma legenda (ex: "Golaço no jogo de domingo!"):') || '';
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('caption', caption);
+    fd.append('category', category);
+    toast('Enviando… aguarde ⏳');
+    try {
+      await api('/posts', { method: 'POST', body: fd });
+      toast('Publicado! 🎉');
+      renderFeed();
+    } catch (e) { toast('Erro: ' + e.message); }
+  });
 }
 
 // ============================================================
@@ -512,6 +551,7 @@ function reelHtml(p) {
           <b>${esc(p.user.name)} ${p.user.verified ? '✅' : ''}</b>
           <span>${ROLES[p.user.role]?.emoji || ''} ${esc(p.user.position || '')}${p.user.city ? ' · ' + esc(p.user.city) : ''}</span>
           <p>${esc(p.caption)}</p>
+          ${postCategoryHtml(p)}
         </div>
       </div>
     </div>`;
@@ -880,6 +920,8 @@ async function renderProfile(userId) {
   cachePosts(posts);
   const mine = u.id === ME.id;
   const videos = posts.filter(p => p.type === 'video').length;
+  const postsProf = posts.filter(p => p.category === 'profissional');
+  const postsPelada = posts.filter(p => p.category !== 'profissional');
   const totalLikes = posts.reduce((s, p) => s + p.likes.length, 0);
   const earned = (achievements || []).filter(a => a.earned);
   c.innerHTML = `
@@ -969,11 +1011,16 @@ async function renderProfile(userId) {
 
     <div class="section">
       <h4>🎥 Mídia (${posts.length}) — ${videos} vídeo(s)</h4>
-      ${posts.length ? `<div class="media-grid">${posts.map(p => `
-        <button class="cell" onclick="openMedia('${esc(p.url)}', '${p.type}')">
-          ${p.type === 'video' ? `<video src="${esc(p.url)}" preload="metadata"></video><span class="play">▶️</span>` : `<img src="${esc(p.url)}">`}
-        </button>`).join('')}</div>`
-        : `<p style="color:var(--muted);font-size:13.5px">${mine ? 'Poste fotos e vídeos no Feed para os olheiros verem você jogando!' : 'Este perfil ainda não postou mídias.'}</p>`}
+      <div class="gal-group">
+        <h5>🏆 Lances em jogos profissionais (${postsProf.length})</h5>
+        ${postsProf.length ? mediaGridHtml(postsProf)
+          : `<p style="color:var(--muted);font-size:13.5px">${mine ? 'Ainda não postou lances em jogos profissionais. Poste no Feed! ⚽' : 'Nenhum lance em jogos profissionais ainda.'}</p>`}
+      </div>
+      <div class="gal-group">
+        <h5>🎉 Lances de pelada/várzea (${postsPelada.length})</h5>
+        ${postsPelada.length ? mediaGridHtml(postsPelada)
+          : `<p style="color:var(--muted);font-size:13.5px">${mine ? 'Ainda não postou lances de pelada/várzea. Poste no Feed! ⚽' : 'Nenhum lance de pelada/várzea ainda.'}</p>`}
+      </div>
     </div>
 
     ${ratings.length ? `<div class="section"><h4>⭐ Avaliações</h4>${ratings.map(r => `

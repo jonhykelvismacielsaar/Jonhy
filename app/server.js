@@ -55,7 +55,35 @@ function saveDB() {
     ghScheduleSave();
   }, 150);
 }
+
+// ---------- Purga de dados de demonstração ----------
+// Remove qualquer sobra de perfis/posts/stories/eventos demo (do db.json
+// ou do backup do GitHub) para o site sempre começar sem contas demo.
+function purgeDemoData() {
+  const demoUsers = db.users.filter(u => u.demo || /@demo\.com$/i.test(u.email || ''));
+  const demoUserIds = new Set(demoUsers.map(u => u.id));
+  const demoPosts = db.posts.filter(p => p.demo || demoUserIds.has(p.userId) || (p.url || '').startsWith('/img/demo/'));
+  const demoPostIds = new Set(demoPosts.map(p => p.id));
+  const before = db.users.length + db.posts.length + db.stories.length + db.events.length;
+  db.users = db.users.filter(u => !demoUserIds.has(u.id));
+  db.posts = db.posts.filter(p => !demoPostIds.has(p.id));
+  db.stories = db.stories.filter(s => !s.demo && !demoUserIds.has(s.userId) && !(s.url || '').startsWith('/img/demo/'));
+  db.events = db.events.filter(e => !e.demo && !demoUserIds.has(e.userId));
+  db.comments = db.comments.filter(c => !demoUserIds.has(c.userId) && !demoPostIds.has(c.postId));
+  db.postRatings = db.postRatings.filter(r => !demoUserIds.has(r.userId) && !demoPostIds.has(r.postId));
+  db.follows = db.follows.filter(f => !demoUserIds.has(f.fromId) && !demoUserIds.has(f.toId));
+  db.notifications = db.notifications.filter(n => !demoUserIds.has(n.userId));
+  db.messages = db.messages.filter(m => !demoUserIds.has(m.fromId) && !demoUserIds.has(m.toId));
+  db.proposals = db.proposals.filter(p => !demoUserIds.has(p.fromId) && !demoUserIds.has(p.toId));
+  db.ratings = db.ratings.filter(r => !demoUserIds.has(r.fromId) && !demoUserIds.has(r.toId));
+  const after = db.users.length + db.posts.length + db.stories.length + db.events.length;
+  if (before !== after) {
+    saveDB();
+    console.log('🧹 Dados de demonstração removidos.');
+  }
+}
 loadDB();
+purgeDemoData();
 
 // ============================================================
 // BACKUP AUTOMÁTICO NO GITHUB (grátis e permanente)
@@ -96,6 +124,7 @@ async function ghLoadDB() {
       db = JSON.parse(text);
       db.tokens = db.tokens || {};
       ['comments', 'postRatings', 'follows', 'stories', 'events'].forEach(k => { db[k] = db[k] || []; });
+      purgeDemoData();
       fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
       console.log('☁️  Banco restaurado do GitHub:', GH_REPO);
     } else {
@@ -157,88 +186,9 @@ async function ghFetchUpload(filename) {
   } catch { return false; }
 }
 
-// ---------- Seed: perfis de demonstracao ----------
+// ---------- Helpers ----------
 function hash(pw) { return crypto.createHash('sha256').update('vitrine' + pw).digest('hex'); }
 function uid() { return crypto.randomBytes(8).toString('hex'); }
-
-function seed() {
-  if (db.users.length > 0) return;
-  const demo = [
-    {
-      name: 'Thiago Souza', nickname: 'Thiaguinho', email: 'thiago@demo.com', role: 'jogador',
-      position: 'Atacante', positions2: 'Ponta direita', level: 'Semiprofissional',
-      city: 'Juína', state: 'MT', age: 22, height: 178, weight: 72, foot: 'Destro',
-      teams: 'Juína EC (base), Operário VG', strengths: 'Velocidade, finalização, drible curto',
-      bio: 'Atacante rápido, artilheiro do campeonato municipal 2025 com 14 gols. Busco oportunidade em clube profissional.',
-      availableHire: true, availableFreela: true, fee: 'R$ 150/jogo', photo: '/img/demo/atacante.jpg'
-    },
-    {
-      name: 'Carlos Mendes', nickname: 'Carlão Paredão', email: 'carlao@demo.com', role: 'goleiro',
-      position: 'Goleiro', positions2: '', level: 'Amador',
-      city: 'Cuiabá', state: 'MT', age: 28, height: 190, weight: 88, foot: 'Destro',
-      teams: 'Mixto (base), União de Rondonópolis', strengths: 'Defesa de pênalti, reposição rápida, jogo aéreo',
-      bio: 'Goleiro freelancer. Pego pênalti até em sonho! Disponível pra jogos avulsos no fim de semana em Cuiabá e região.',
-      availableHire: true, availableFreela: true, fee: 'R$ 120/jogo', photo: '/img/demo/goleiro.jpg'
-    },
-    {
-      name: 'Roberto Lima', nickname: 'Professor Beto', email: 'beto@demo.com', role: 'tecnico',
-      position: 'Técnico', positions2: 'Preparador físico', level: 'Profissional',
-      city: 'Sinop', state: 'MT', age: 45, height: 175, weight: 82, foot: '',
-      teams: 'Sinop FC (base), Escolinha Craques do Norte', strengths: 'Formação de base, tática 4-3-3, gestão de grupo',
-      bio: '20 anos formando atletas. Licença CBF C. Disponível para projetos de base e times amadores.',
-      availableHire: true, availableFreela: true, fee: 'A combinar', photo: '/img/demo/tecnico.jpg'
-    },
-    {
-      name: 'Ana Paula Ferreira', nickname: 'Aninha 10', email: 'ana@demo.com', role: 'jogador',
-      position: 'Meia', positions2: 'Volante', level: 'Base',
-      city: 'Juína', state: 'MT', age: 20, height: 165, weight: 58, foot: 'Canhota',
-      teams: 'Juína Futebol Feminino', strengths: 'Visão de jogo, passe longo, bola parada',
-      bio: 'Camisa 10 do time feminino de Juína. Sonho de jogar no futebol profissional feminino.',
-      availableHire: true, availableFreela: false, fee: '', photo: '/img/demo/meia.jpg'
-    }
-  ];
-  demo.forEach(d => {
-    db.users.push({
-      id: uid(), password: hash('123456'), createdAt: Date.now(),
-      verified: true, demo: true, ...d
-    });
-  });
-  const t = db.users[0], g = db.users[1];
-  db.posts.push(
-    { id: uid(), userId: t.id, type: 'photo', url: '/img/demo/atacante.jpg', caption: 'Pronto pra mais uma temporada! ⚽🔥 Artilheiro em busca de clube.', likes: [], createdAt: Date.now() - 86400000 },
-    { id: uid(), userId: g.id, type: 'photo', url: '/img/demo/goleiro.jpg', caption: 'Goleiro disponível pra freela sábado e domingo em Cuiabá! Chama no chat 🧤', likes: [], createdAt: Date.now() - 43200000 }
-  );
-  saveDB();
-  console.log('Perfis de demonstração criados.');
-}
-seed();
-
-// ---------- Seed extra: stories e eventos de demonstracao ----------
-function seedExtras() {
-  const byEmail = e => db.users.find(u => u.email === e);
-  const t = byEmail('thiago@demo.com'), g = byEmail('carlao@demo.com'),
-        a = byEmail('ana@demo.com'), b = byEmail('beto@demo.com');
-  if (!t) return;
-  const DAY = 86400000;
-  const activeStories = db.stories.filter(s => Date.now() - s.createdAt < DAY);
-  if (!activeStories.length) {
-    db.stories = db.stories.filter(s => Date.now() - s.createdAt < DAY);
-    db.stories.push(
-      { id: uid(), userId: t.id, type: 'video', url: '/img/demo/lance-atacante.mp4', caption: 'No campo agora! Bora pro aquecimento 🔥', viewers: [], demo: true, createdAt: Date.now() - 3600000 },
-      { id: uid(), userId: g.id, type: 'photo', url: '/img/demo/goleiro.jpg', caption: 'Luvas prontas pro freela de hoje 🧤', viewers: [], demo: true, createdAt: Date.now() - 7200000 },
-      { id: uid(), userId: a.id, type: 'photo', url: '/img/demo/meia.jpg', caption: 'Treino concluído! 💪⚽', viewers: [], demo: true, createdAt: Date.now() - 1800000 }
-    );
-  }
-  if (!db.events.length && b && g) {
-    db.events.push(
-      { id: uid(), userId: b.id, type: 'peneira', title: 'Peneira Sub-20 — Sinop FC', description: 'Seleção de atletas sub-20 para a base. Levar chuteira, caneleira e RG. Todas as posições!', city: 'Sinop', state: 'MT', place: 'CT do Sinop FC — Av. dos Ingás', date: Date.now() + 5 * DAY, fee: 'Gratuito', lat: -11.8642, lng: -55.5025, participants: [], demo: true, createdAt: Date.now() },
-      { id: uid(), userId: g.id, type: 'jogo', title: 'Precisa-se de goleiro — Racha de domingo', description: 'Jogo society domingo 15h. Precisamos de 1 goleiro e 2 na linha. Churrasco depois! 🍖', city: 'Cuiabá', state: 'MT', place: 'Arena Society Beira Rio', date: Date.now() + 3 * DAY, fee: 'R$ 25 por jogador', lat: -15.6014, lng: -56.0979, participants: [], demo: true, createdAt: Date.now() },
-      { id: uid(), userId: b.id, type: 'peneira', title: 'Avaliação de goleiros — Escolinha Craques do Norte', description: 'Avaliação exclusiva para goleiros de 14 a 18 anos. Vagas limitadas!', city: 'Juína', state: 'MT', place: 'Campo Municipal de Juína', date: Date.now() + 10 * DAY, fee: 'Gratuito', lat: -11.3728, lng: -58.7483, participants: [], demo: true, createdAt: Date.now() }
-    );
-  }
-  saveDB();
-}
-seedExtras();
 
 // ---------- Uploads (fotos e videos) ----------
 const storage = multer.diskStorage({
@@ -423,10 +373,11 @@ app.post('/api/me/photo', auth, upload.single('file'), (req, res) => {
 app.post('/api/posts', auth, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
   const isVideo = /\.(mp4|mov|webm|mkv|avi|3gp)$/i.test(req.file.filename) || (req.file.mimetype || '').startsWith('video');
+  const category = req.body.category === 'profissional' ? 'profissional' : 'pelada';
   const post = {
     id: uid(), userId: req.user.id, type: isVideo ? 'video' : 'photo',
     url: '/uploads/' + req.file.filename, caption: req.body.caption || '',
-    likes: [], createdAt: Date.now()
+    category, likes: [], createdAt: Date.now()
   };
   db.posts.push(post);
   ghSaveUpload(req.file.filename);

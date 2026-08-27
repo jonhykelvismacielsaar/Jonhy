@@ -52,9 +52,110 @@ function saveDB() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+    ghScheduleSave();
   }, 150);
 }
 loadDB();
+
+// ============================================================
+// BACKUP AUTOMÁTICO NO GITHUB (grátis e permanente)
+// Ative com as variáveis de ambiente:
+//   DB_GITHUB_TOKEN = token do GitHub (com permissão de repo)
+//   DB_GITHUB_REPO  = usuario/nome-do-repo (ex: fulano/vitrinefc-dados)
+// ============================================================
+const GH_TOKEN = process.env.DB_GITHUB_TOKEN;
+const GH_REPO = process.env.DB_GITHUB_REPO;
+const GH_ON = !!(GH_TOKEN && GH_REPO);
+let ghDbSha = null;
+let ghSaveTimer = null;
+let ghSaving = false;
+
+async function ghApi(method, urlPath, body, raw) {
+  const r = await fetch(`https://api.github.com/repos/${GH_REPO}/${urlPath}`, {
+    method,
+    headers: {
+      'Authorization': `Bearer ${GH_TOKEN}`,
+      'Accept': raw ? 'application/vnd.github.raw' : 'application/vnd.github+json',
+      'User-Agent': 'vitrinefc',
+      ...(body ? { 'Content-Type': 'application/json' } : {})
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  return r;
+}
+
+async function ghLoadDB() {
+  if (!GH_ON) return;
+  try {
+    const meta = await ghApi('GET', 'contents/db.json');
+    if (meta.status === 200) {
+      const j = await meta.json();
+      ghDbSha = j.sha;
+      const rawRes = await ghApi('GET', 'contents/db.json', null, true);
+      const text = await rawRes.text();
+      db = JSON.parse(text);
+      db.tokens = db.tokens || {};
+      ['comments', 'postRatings', 'follows', 'stories', 'events'].forEach(k => { db[k] = db[k] || []; });
+      fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+      console.log('☁️  Banco restaurado do GitHub:', GH_REPO);
+    } else {
+      console.log('☁️  GitHub configurado — primeiro backup será criado ao salvar.');
+    }
+  } catch (e) { console.error('☁️  Erro ao carregar backup do GitHub:', e.message); }
+}
+
+function ghScheduleSave() {
+  if (!GH_ON) return;
+  clearTimeout(ghSaveTimer);
+  ghSaveTimer = setTimeout(ghSaveDB, 4000);
+}
+
+async function ghSaveDB() {
+  if (!GH_ON || ghSaving) { if (ghSaving) ghScheduleSave(); return; }
+  ghSaving = true;
+  try {
+    const content = Buffer.from(JSON.stringify(db, null, 2)).toString('base64');
+    let r = await ghApi('PUT', 'contents/db.json', {
+      message: 'backup automático do Vitrine FC',
+      content, ...(ghDbSha ? { sha: ghDbSha } : {})
+    });
+    if (r.status === 409 || r.status === 422) { // sha desatualizado
+      const meta = await ghApi('GET', 'contents/db.json');
+      if (meta.status === 200) ghDbSha = (await meta.json()).sha;
+      r = await ghApi('PUT', 'contents/db.json', {
+        message: 'backup automático do Vitrine FC',
+        content, ...(ghDbSha ? { sha: ghDbSha } : {})
+      });
+    }
+    if (r.ok) { ghDbSha = (await r.json()).content.sha; }
+    else console.error('☁️  Backup falhou:', r.status, (await r.text()).slice(0, 120));
+  } catch (e) { console.error('☁️  Backup falhou:', e.message); }
+  ghSaving = false;
+}
+
+async function ghSaveUpload(filename) {
+  if (!GH_ON) return;
+  try {
+    const fp = path.join(UPLOAD_DIR, filename);
+    const size = fs.statSync(fp).size;
+    if (size > 20 * 1024 * 1024) return; // acima de 20MB fica só local
+    const content = fs.readFileSync(fp).toString('base64');
+    await ghApi('PUT', `contents/uploads/${filename}`, {
+      message: 'upload ' + filename, content
+    });
+  } catch (e) { console.error('☁️  Upload p/ GitHub falhou:', e.message); }
+}
+
+async function ghFetchUpload(filename) {
+  if (!GH_ON) return false;
+  try {
+    const r = await ghApi('GET', `contents/uploads/${encodeURIComponent(filename)}`, null, true);
+    if (!r.ok) return false;
+    const buf = Buffer.from(await r.arrayBuffer());
+    fs.writeFileSync(path.join(UPLOAD_DIR, filename), buf);
+    return true;
+  } catch { return false; }
+}
 
 // ---------- Seed: perfis de demonstracao ----------
 function hash(pw) { return crypto.createHash('sha256').update('vitrine' + pw).digest('hex'); }
@@ -152,6 +253,14 @@ const upload = multer({ storage, limits: { fileSize: 100 * 1024 * 1024 } });
 // ---------- Middlewares ----------
 app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+// uploads: se não achar localmente, busca no backup do GitHub
+app.use('/uploads', (req, res, next) => {
+  const name = decodeURIComponent(req.path.replace(/^\//, ''));
+  if (!name || name.includes('..')) return next();
+  const fp = path.join(UPLOAD_DIR, name);
+  if (fs.existsSync(fp)) return next();
+  ghFetchUpload(name).then(() => next()).catch(() => next());
+});
 app.use('/uploads', express.static(UPLOAD_DIR));
 
 function auth(req, res, next) {
@@ -305,6 +414,7 @@ app.put('/api/me', auth, (req, res) => {
 app.post('/api/me/photo', auth, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
   req.user.photo = '/uploads/' + req.file.filename;
+  ghSaveUpload(req.file.filename);
   saveDB();
   res.json(publicUser(req.user));
 });
@@ -319,6 +429,7 @@ app.post('/api/posts', auth, upload.single('file'), (req, res) => {
     likes: [], createdAt: Date.now()
   };
   db.posts.push(post);
+  ghSaveUpload(req.file.filename);
   saveDB();
   res.json(post);
 });
@@ -479,6 +590,7 @@ app.post('/api/stories', auth, upload.single('file'), (req, res) => {
     viewers: [], createdAt: Date.now()
   };
   db.stories.push(story);
+  ghSaveUpload(req.file.filename);
   saveDB();
   res.json(story);
 });
@@ -683,6 +795,14 @@ app.get('/api/badges', auth, (req, res) => {
   res.json({ unreadMsgs, unreadNotifs, pendingProps });
 });
 
+// ---- Novos usuários (vitrine de recém-chegados) ----
+app.get('/api/newusers', auth, (req, res) => {
+  const list = db.users.filter(u => u.role !== 'olheiro')
+    .sort((a, b) => b.createdAt - a.createdAt).slice(0, 12)
+    .map(publicUser);
+  res.json(list);
+});
+
 // ---- Download do aplicativo Android (.APK) ----
 app.get('/baixar', (req, res) => {
   const apk = path.join(__dirname, '..', 'apk', 'VitrineFC.apk');
@@ -692,4 +812,7 @@ app.get('/baixar', (req, res) => {
   fs.createReadStream(apk).pipe(res);
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`⚽ Vitrine FC rodando na porta ${PORT}`));
+(async () => {
+  await ghLoadDB(); // restaura o banco do GitHub, se configurado
+  app.listen(PORT, '0.0.0.0', () => console.log(`⚽ Vitrine FC rodando na porta ${PORT}`));
+})();

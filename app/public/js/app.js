@@ -6,7 +6,7 @@ const app = $('#app');
 let TOKEN = localStorage.getItem('vfc_token') || null;
 let ME = null;
 let currentTab = 'feed';
-let chatPoll = null, badgePoll = null;
+let chatPoll = null, badgePoll = null, feedPoll = null;
 
 const ROLES = {
   jogador: { emoji: '🏃', label: 'Jogador' },
@@ -190,6 +190,7 @@ function setBadge(id, n) {
 function showTab(tab) {
   currentTab = tab;
   clearInterval(chatPoll);
+  clearInterval(feedPoll);
   document.querySelectorAll('.nav button').forEach(b => b.classList.remove('on'));
   const nb = document.getElementById('nav-' + tab);
   if (nb) nb.classList.add('on');
@@ -203,7 +204,34 @@ function showTab(tab) {
 async function renderFeed() {
   const c = $('#content');
   c.innerHTML = '<p class="empty">Carregando o feed… ⚽</p>';
-  const [posts, storyGroups] = await Promise.all([api('/feed'), api('/stories')]);
+  const [posts, storyGroups, newUsers] = await Promise.all([api('/feed'), api('/stories'), api('/newusers')]);
+  drawFeed(c, posts, storyGroups, newUsers);
+  // FEED AO VIVO: atualiza sozinho quando entra post, story ou usuário novo
+  let lastSig = feedSignature(posts, storyGroups, newUsers);
+  clearInterval(feedPoll);
+  feedPoll = setInterval(async () => {
+    if (currentTab !== 'feed') { clearInterval(feedPoll); return; }
+    const a = document.activeElement;
+    if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) return; // não interrompe quem digita
+    try {
+      const [p2, s2, n2] = await Promise.all([api('/feed'), api('/stories'), api('/newusers')]);
+      const sig = feedSignature(p2, s2, n2);
+      if (sig !== lastSig) {
+        lastSig = sig;
+        cachePosts(p2);
+        window._storyGroups = s2;
+        drawFeed(c, p2, s2, n2);
+        toast('Feed atualizado! ⚽');
+      }
+    } catch {}
+  }, 10000);
+}
+function feedSignature(posts, stories, users) {
+  return posts.map(p => p.id + ':' + p.likes.length + ':' + p.comments.length + ':' + (p.starsCount || 0)).join('|')
+    + '§' + stories.map(g => g.user.id + ':' + g.stories.length).join('|')
+    + '§' + users.map(u => u.id).join('|');
+}
+function drawFeed(c, posts, storyGroups, newUsers) {
   cachePosts(posts);
   window._storyGroups = storyGroups;
   c.innerHTML = `
@@ -220,6 +248,18 @@ async function renderFeed() {
           <span>${esc((g.user.nickname || g.user.name).split(' ')[0])}</span>
         </button>`).join('')}
     </div>
+    ${newUsers && newUsers.length ? `
+    <div class="section" style="padding:12px 14px">
+      <h4 style="color:var(--yellow);font-size:13px;margin-bottom:8px">🆕 Recém-chegados na Vitrine</h4>
+      <div class="trend-strip" style="margin-bottom:0;padding-bottom:2px">
+        ${newUsers.map(u => `
+          <button class="trend-card" onclick="renderProfile('${u.id}')">
+            ${avatarHtml(u)}
+            <b>${esc((u.nickname || u.name).split(' ')[0])}</b>
+            <span>${ROLES[u.role]?.emoji || ''} ${esc(u.position || ROLES[u.role]?.label || '')}</span>
+          </button>`).join('')}
+      </div>
+    </div>` : ''}
     ${ME.role !== 'olheiro' ? `
       <div class="section" style="display:flex;gap:10px;align-items:center">
         ${avatarHtml(ME)}

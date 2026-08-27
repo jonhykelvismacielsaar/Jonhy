@@ -6,6 +6,7 @@ const app = $('#app');
 let TOKEN = localStorage.getItem('vfc_token') || null;
 let ME = null;
 let currentTab = 'feed';
+let profileMode = 'grid';
 let chatPoll = null, badgePoll = null, feedPoll = null;
 
 const ROLES = {
@@ -386,8 +387,8 @@ function postHtml(p) {
         </div>
       </div>
       ${p.type === 'video'
-        ? `<video class="media" src="${esc(p.url)}" controls playsinline preload="metadata"></video>`
-        : `<img class="media" src="${esc(p.url)}" alt="">`}
+        ? `<video class="media" src="${esc(p.url)}" controls playsinline preload="metadata" onclick="openMedia('${esc(p.url)}','video','${p.id}')"></video>`
+        : `<img class="media" src="${esc(p.url)}" alt="" onclick="openMedia('${esc(p.url)}','photo','${p.id}')">`}
       <div class="body">
         <p class="caption">${esc(p.caption)}</p>
         ${postCategoryHtml(p)}
@@ -402,7 +403,7 @@ function postHtml(p) {
         <button class="${liked ? 'liked' : ''}" onclick="likePost('${p.id}')">${liked ? '💛' : '🤍'} ${p.likes.length}</button>
         <button onclick="toggleComments('${p.id}')">💬 ${p.comments.length}</button>
         <button onclick="openChat('${p.user.id}', '${esc(p.user.name)}')">✉️ Chamar</button>
-        ${(p.userId === ME.id || ME.isAdmin) ? `<button style="color:var(--danger)" onclick="delPost('${p.id}')" title="Excluir post">🗑️</button>` : ''}
+        ${(p.userId === ME.id || ME.isAdmin) ? `<button onclick="openEditPost('${p.id}')" title="Editar post">✏️</button><button style="color:var(--danger)" onclick="delPost('${p.id}')" title="Excluir post">🗑️</button>` : ''}
       </div>
       <div class="comments" id="comments-${p.id}" data-open="0">
         ${p.comments.length > 2 ? `<button class="see-all" onclick="toggleComments('${p.id}')">Ver todos os ${p.comments.length} comentários</button>` : ''}
@@ -428,7 +429,7 @@ const postCache = {};
 function cachePosts(posts) { posts.forEach(p => postCache[p.id] = p); }
 function mediaGridHtml(list) {
   return `<div class="media-grid">${list.map(p => `
-    <button class="cell" onclick="openMedia('${esc(p.url)}', '${p.type}')">
+    <button class="cell" onclick="openMedia('${esc(p.url)}', '${p.type}', '${p.id}')">
       ${p.type === 'video' ? `<video src="${esc(p.url)}" preload="metadata"></video><span class="play">▶️</span>` : `<img src="${esc(p.url)}">`}
     </button>`).join('')}</div>`;
 }
@@ -488,7 +489,23 @@ async function likePost(id) {
       : `${liked ? '💛' : '🤍'} ${p.likes.length}`;
   }
 }
-async function delPost(id) { if (confirm('Excluir esta publicação?')) { await api(`/posts/${id}`, { method: 'DELETE' }); renderFeed(); toast('Publicação excluída'); } }
+async function delPost(id) {
+  if (!confirm('Excluir esta publicação?')) return;
+  await api(`/posts/${id}`, { method: 'DELETE' });
+  if (currentTab === 'profile') renderProfile(window._lastProfile?.user?.id || ME.id); else renderFeed();
+  toast('Publicação excluída');
+}
+function openEditPost(id) {
+  const p = postCache[id]; if (!p) return;
+  const bg = document.createElement('div'); bg.className = 'modal-bg';
+  bg.innerHTML = `<div class="modal"><h3>✏️ Editar publicação</h3>
+    <label>Legenda</label><textarea id="ep-caption" rows="3">${esc(p.caption)}</textarea>
+    <label>Categoria do lance</label><select id="ep-category"><option value="profissional" ${p.category === 'profissional' ? 'selected' : ''}>🏆 Profissional</option><option value="pelada" ${p.category !== 'profissional' ? 'selected' : ''}>🎉 Pelada</option></select>
+    <button class="btn btn-primary mt" id="ep-save">Salvar alterações</button><button class="btn btn-outline mt" id="ep-cancel">Cancelar</button></div>`;
+  bg.querySelector('#ep-cancel').onclick = () => bg.remove();
+  bg.querySelector('#ep-save').onclick = async () => { try { const updated = await api('/posts/' + id, { method:'PUT', body:{ caption:bg.querySelector('#ep-caption').value, category:bg.querySelector('#ep-category').value } }); postCache[id] = updated; bg.remove(); toast('Publicação atualizada! ✅'); currentTab === 'profile' ? renderProfile(window._lastProfile?.user?.id || ME.id) : renderFeed(); } catch(e) { toast('Erro: ' + e.message); } };
+  bg.onclick = e => { if (e.target === bg) bg.remove(); }; document.body.appendChild(bg);
+}
 function askPostCategory(cb) {
   const bg = document.createElement('div');
   bg.className = 'modal-bg';
@@ -992,6 +1009,7 @@ async function renderProfile(userId) {
     ${mine ? `
       <div class="row2">
         <button class="btn btn-green btn-sm" onclick="renderEditProfile()">✏️ Editar perfil</button>
+        <button class="btn btn-outline btn-sm" onclick="openSecurityModal()">🔐 E-mail e Senha</button>
         <button class="btn btn-primary btn-sm" onclick="shareProfile('${u.id}')">🔗 Compartilhar</button>
       </div>
       <button class="btn ${ME.isAdmin ? 'btn-primary' : 'btn-outline'} btn-sm mt" style="width:100%" onclick="${ME.isAdmin ? "showTab('admin')" : "claimAdminAccess()"}">
@@ -1027,19 +1045,13 @@ async function renderProfile(userId) {
     ${u.strengths ? `<div class="section"><h4>💪 Pontos fortes</h4><p>${u.strengths.split(',').map(s => '<span class="pill">' + esc(s.trim()) + '</span>').join('')}</p></div>` : ''}
     ${u.teams ? `<div class="section"><h4>🏆 Times por onde passou</h4><p>${esc(u.teams)}</p></div>` : ''}
 
-    <div class="section">
-      <h4>🎥 Mídia (${posts.length}) — ${videos} vídeo(s)</h4>
-      <div class="gal-group">
-        <h5>🏆 Lances em jogos profissionais (${postsProf.length})</h5>
-        ${postsProf.length ? mediaGridHtml(postsProf)
-          : `<p style="color:var(--muted);font-size:13.5px">${mine ? 'Ainda não postou lances em jogos profissionais. Poste no Feed! ⚽' : 'Nenhum lance em jogos profissionais ainda.'}</p>`}
-      </div>
-      <div class="gal-group">
-        <h5>🎉 Lances de pelada/várzea (${postsPelada.length})</h5>
-        ${postsPelada.length ? mediaGridHtml(postsPelada)
-          : `<p style="color:var(--muted);font-size:13.5px">${mine ? 'Ainda não postou lances de pelada/várzea. Poste no Feed! ⚽' : 'Nenhum lance de pelada/várzea ainda.'}</p>`}
-      </div>
+    <div class="section profile-posts">
+      <div class="profile-view-toggle"><button class="btn btn-sm ${profileMode === 'feed' ? 'btn-primary' : 'btn-outline'}" onclick="profileMode='feed'; renderProfile('${u.id}')">📰 Feed</button><button class="btn btn-sm ${profileMode === 'grid' ? 'btn-primary' : 'btn-outline'}" onclick="profileMode='grid'; renderProfile('${u.id}')">🔲 Grade</button></div>
+      ${profileMode === 'feed' ? `<h4>📰 Feed individual (${posts.length})</h4>${posts.length ? posts.map(postHtml).join('') : '<p class="empty">Nenhuma publicação ainda.</p>'}` : `<h4>🎥 Mídia (${posts.length}) — ${videos} vídeo(s)</h4>
+        <div class="gal-group"><h5>🏆 Lances em jogos profissionais (${postsProf.length})</h5>${postsProf.length ? mediaGridHtml(postsProf) : '<p class="sub">Nenhum lance profissional ainda.</p>'}</div>
+        <div class="gal-group"><h5>🎉 Lances de pelada/várzea (${postsPelada.length})</h5>${postsPelada.length ? mediaGridHtml(postsPelada) : '<p class="sub">Nenhum lance de pelada/várzea ainda.</p>'}</div>`}
     </div>
+    ${ME.isAdmin && !mine ? `<div class="section admin-moderation-card"><h4>🛡️ Moderação do Administrador</h4><p class="sub">Excluir este perfil remove posts, stories, comentários, votos e mensagens vinculadas.</p><button class="btn btn-danger" onclick="adminDeleteUserFromProfile('${u.id}', '${esc(u.name)}')">🗑️ Excluir Usuário</button></div>` : ''}
 
     ${ratings.length ? `<div class="section"><h4>⭐ Avaliações</h4>${ratings.map(r => `
       <p style="margin-bottom:8px"><b>${esc(r.from?.name || '')}</b> — <span class="stars">${'★'.repeat(r.stars)}</span><br><span style="color:var(--muted)">${esc(r.comment)}</span></p>`).join('')}</div>` : ''}`;
@@ -1245,15 +1257,32 @@ async function newProfilePhoto(input) {
   renderProfile(ME.id);
 }
 
-function openMedia(url, type) {
-  const bg = document.createElement('div');
-  bg.className = 'modal-bg';
-  bg.style.alignItems = 'center';
-  bg.innerHTML = type === 'video'
-    ? `<video src="${url}" controls autoplay playsinline style="width:100%;max-width:480px;max-height:80dvh"></video>`
-    : `<img src="${url}" style="width:100%;max-width:480px;max-height:80dvh;object-fit:contain">`;
-  bg.onclick = e => { if (e.target === bg) bg.remove(); };
-  document.body.appendChild(bg);
+function openMedia(url, type, postId) {
+  const bg = document.createElement('div'); bg.className = 'modal-bg'; bg.style.alignItems = 'center';
+  const p = postId ? postCache[postId] : null;
+  const canModerate = p && (p.userId === ME.id || ME.isAdmin);
+  bg.innerHTML = `<div class="modal" style="background:#000;text-align:center">
+    ${type === 'video' ? `<video src="${esc(url)}" controls autoplay playsinline style="width:100%;max-height:70dvh"></video>` : `<img src="${esc(url)}" style="width:100%;max-height:70dvh;object-fit:contain">`}
+    ${canModerate ? `<div style="display:flex;gap:8px;margin-top:12px"><button class="btn btn-primary btn-sm" style="flex:1" id="media-edit">✏️ Editar</button><button class="btn btn-danger btn-sm" style="flex:1" id="media-delete">🗑️ Excluir</button></div>` : ''}
+  </div>`;
+  if (canModerate) { bg.querySelector('#media-edit').onclick = () => { bg.remove(); openEditPost(postId); }; bg.querySelector('#media-delete').onclick = () => { bg.remove(); delPost(postId); }; }
+  bg.onclick = e => { if (e.target === bg) bg.remove(); }; document.body.appendChild(bg);
+}
+
+function openSecurityModal() {
+  const bg = document.createElement('div'); bg.className = 'modal-bg';
+  bg.innerHTML = `<div class="modal"><h3>🔐 E-mail e Senha</h3><p class="sub">Por segurança, informe sua senha atual para confirmar qualquer alteração.</p>
+    <label>Novo e-mail</label><input id="sec-email" type="email" value="${esc(ME.email || '')}">
+    <label>Nova senha (opcional)</label><input id="sec-pass" type="password" placeholder="Deixe em branco para manter">
+    <label>Senha atual *</label><input id="sec-current" type="password" autocomplete="current-password">
+    <button class="btn btn-primary mt" id="sec-save">Salvar alterações</button><button class="btn btn-outline mt" id="sec-cancel">Cancelar</button></div>`;
+  bg.querySelector('#sec-cancel').onclick = () => bg.remove();
+  bg.querySelector('#sec-save').onclick = async () => { try { ME = await api('/me/security', { method:'PUT', body:{ email:bg.querySelector('#sec-email').value.trim(), password:bg.querySelector('#sec-pass').value, currentPassword:bg.querySelector('#sec-current').value } }); bg.remove(); toast('E-mail e senha atualizados! ✅'); renderProfile(ME.id); } catch(e) { toast('Erro: ' + e.message); } };
+  bg.onclick = e => { if (e.target === bg) bg.remove(); }; document.body.appendChild(bg);
+}
+async function adminDeleteUserFromProfile(id, name) {
+  if (!confirm(`Excluir o usuário ${name} e todos os dados vinculados? Esta ação não pode ser desfeita.`)) return;
+  try { await api('/admin/users/' + id, { method:'DELETE' }); toast('Usuário excluído e dados removidos.'); showTab('admin'); switchAdminSubTab('users'); } catch(e) { toast('Erro: ' + e.message); }
 }
 
 // ---------- Editar perfil ----------
@@ -1581,6 +1610,7 @@ async function renderAdmin() {
     <div class="admin-header">
       <h2>🛡️ Painel do Administrador</h2>
       <p class="sub">Gerenciamento completo da rede Vitrine FC</p>
+      <button class="btn btn-outline btn-sm" onclick="openSecurityModal()">🔑 Alterar Minha Senha / E-mail</button>
     </div>
     <div class="admin-subnav">
       <button class="admin-subnav-btn ${adminSubTab === 'overview' ? 'active' : ''}" onclick="switchAdminSubTab('overview')">📊 Visão Geral</button>

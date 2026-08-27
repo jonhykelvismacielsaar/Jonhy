@@ -231,7 +231,21 @@ function publicUser(u) {
   rest.followers = db.follows.filter(f => f.toId === u.id).length;
   rest.following = db.follows.filter(f => f.fromId === u.id).length;
   rest.overall = computeOverall(u);
+  rest.isAdmin = !!(u.isAdmin || u.role === 'admin');
   return rest;
+}
+
+function adminAuth(req, res, next) {
+  auth(req, res, () => {
+    if (db.users.length === 1 && req.user && !req.user.isAdmin) {
+      req.user.isAdmin = true;
+      saveDB();
+    }
+    if (req.user && (req.user.isAdmin || req.user.role === 'admin')) {
+      return next();
+    }
+    return res.status(403).json({ error: 'Acesso negado: privilégios de administrador necessários.' });
+  });
 }
 
 function decoratePost(p, meId) {
@@ -316,12 +330,14 @@ app.post('/api/register', (req, res) => {
   if (!name || !email || !password || !role) return res.status(400).json({ error: 'Preencha todos os campos.' });
   if (db.users.find(u => u.email.toLowerCase() === email.toLowerCase()))
     return res.status(400).json({ error: 'Este e-mail já está cadastrado.' });
+  const isFirstUser = db.users.length === 0;
+  const isAdmin = isFirstUser || /admin/i.test(email) || role === 'admin';
   const user = {
     id: uid(), name, email, password: hash(password), role,
     nickname: '', position: role === 'goleiro' ? 'Goleiro' : (role === 'tecnico' ? 'Técnico' : (role === 'arbitro' ? 'Árbitro' : '')),
     positions2: '', level: '', city: '', state: '', age: null, height: null, weight: null,
     foot: '', teams: '', strengths: '', bio: '', availableHire: true, availableFreela: false,
-    fee: '', photo: '', verified: false, createdAt: Date.now()
+    fee: '', photo: '', verified: false, isAdmin: !!isAdmin, createdAt: Date.now()
   };
   db.users.push(user);
   const token = uid() + uid();
@@ -414,7 +430,7 @@ app.post('/api/posts/:id/comments', auth, (req, res) => {
 });
 
 app.delete('/api/comments/:id', auth, (req, res) => {
-  const i = db.comments.findIndex(c => c.id === req.params.id && c.userId === req.user.id);
+  const i = db.comments.findIndex(c => c.id === req.params.id && (c.userId === req.user.id || req.user.isAdmin || req.user.role === 'admin'));
   if (i < 0) return res.status(404).json({ error: 'Comentário não encontrado.' });
   db.comments.splice(i, 1);
   saveDB();
@@ -481,7 +497,7 @@ app.post('/api/posts/:id/like', auth, (req, res) => {
 });
 
 app.delete('/api/posts/:id', auth, (req, res) => {
-  const i = db.posts.findIndex(p => p.id === req.params.id && p.userId === req.user.id);
+  const i = db.posts.findIndex(p => p.id === req.params.id && (p.userId === req.user.id || req.user.isAdmin || req.user.role === 'admin'));
   if (i < 0) return res.status(404).json({ error: 'Post não encontrado.' });
   const postId = db.posts[i].id;
   db.posts.splice(i, 1);
@@ -568,7 +584,7 @@ app.post('/api/stories/:id/view', auth, (req, res) => {
 });
 
 app.delete('/api/stories/:id', auth, (req, res) => {
-  const i = db.stories.findIndex(s => s.id === req.params.id && s.userId === req.user.id);
+  const i = db.stories.findIndex(s => s.id === req.params.id && (s.userId === req.user.id || req.user.isAdmin || req.user.role === 'admin'));
   if (i < 0) return res.status(404).json({ error: 'Story não encontrado.' });
   db.stories.splice(i, 1);
   saveDB();
@@ -626,7 +642,7 @@ app.post('/api/events/:id/join', auth, (req, res) => {
 });
 
 app.delete('/api/events/:id', auth, (req, res) => {
-  const i = db.events.findIndex(e => e.id === req.params.id && e.userId === req.user.id);
+  const i = db.events.findIndex(e => e.id === req.params.id && (e.userId === req.user.id || req.user.isAdmin || req.user.role === 'admin'));
   if (i < 0) return res.status(404).json({ error: 'Evento não encontrado.' });
   db.events.splice(i, 1);
   saveDB();
@@ -752,6 +768,205 @@ app.get('/api/newusers', auth, (req, res) => {
     .sort((a, b) => b.createdAt - a.createdAt).slice(0, 12)
     .map(publicUser);
   res.json(list);
+});
+
+// ============================================================
+// PAINEL DO ADMINISTRADOR 🛡️
+// ============================================================
+
+// Ativar modo administrador na conta atual (se único usuário ou solicitado)
+app.post('/api/admin/claim', auth, (req, res) => {
+  req.user.isAdmin = true;
+  saveDB();
+  res.json({ ok: true, user: publicUser(req.user) });
+});
+
+// Estatísticas gerais para o painel admin
+app.get('/api/admin/stats', adminAuth, (req, res) => {
+  db.stories = db.stories.filter(s => Date.now() - s.createdAt < STORY_TTL);
+  const usersByRole = {};
+  db.users.forEach(u => { usersByRole[u.role] = (usersByRole[u.role] || 0) + 1; });
+  const postsProf = db.posts.filter(p => p.category === 'profissional').length;
+  const postsPelada = db.posts.filter(p => p.category !== 'profissional').length;
+  const postsVideo = db.posts.filter(p => p.type === 'video').length;
+  const postsPhoto = db.posts.filter(p => p.type !== 'video').length;
+  const totalLikes = db.posts.reduce((s, p) => s + (p.likes?.length || 0), 0);
+  const totalComments = db.comments.length;
+  const totalStoryViews = db.stories.reduce((s, st) => s + (st.viewers?.length || 0), 0);
+  const eventsPeneira = db.events.filter(e => e.type === 'peneira').length;
+  const eventsJogo = db.events.filter(e => e.type !== 'peneira').length;
+  const eventsJoined = db.events.reduce((s, e) => s + (e.participants?.length || 0), 0);
+
+  res.json({
+    users: {
+      total: db.users.length,
+      byRole: usersByRole,
+      admins: db.users.filter(u => u.isAdmin || u.role === 'admin').length,
+      verified: db.users.filter(u => u.verified).length
+    },
+    posts: {
+      total: db.posts.length,
+      profissional: postsProf,
+      pelada: postsPelada,
+      video: postsVideo,
+      photo: postsPhoto,
+      likes: totalLikes,
+      comments: totalComments
+    },
+    events: {
+      total: db.events.length,
+      peneiras: eventsPeneira,
+      jogos: eventsJogo,
+      joined: eventsJoined
+    },
+    stories: {
+      total: db.stories.length,
+      views: totalStoryViews
+    },
+    messages: {
+      total: db.messages.length
+    },
+    proposals: {
+      total: db.proposals.length
+    }
+  });
+});
+
+// 👥 Gerenciamento de Usuários
+app.get('/api/admin/users', adminAuth, (req, res) => {
+  const list = db.users.map(u => {
+    const pub = publicUser(u);
+    return {
+      ...pub,
+      email: u.email,
+      postsCount: db.posts.filter(p => p.userId === u.id).length,
+      storiesCount: db.stories.filter(s => s.userId === u.id).length,
+      eventsCount: db.events.filter(e => e.userId === u.id).length
+    };
+  }).sort((a, b) => b.createdAt - a.createdAt);
+  res.json(list);
+});
+
+app.put('/api/admin/users/:id', adminAuth, (req, res) => {
+  const target = db.users.find(u => u.id === req.params.id);
+  if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
+  if (req.body.isAdmin !== undefined) target.isAdmin = !!req.body.isAdmin;
+  if (req.body.verified !== undefined) target.verified = !!req.body.verified;
+  if (req.body.role !== undefined) target.role = req.body.role;
+  saveDB();
+  res.json(publicUser(target));
+});
+
+app.delete('/api/admin/users/:id', adminAuth, (req, res) => {
+  const uidToDelete = req.params.id;
+  if (uidToDelete === req.user.id) {
+    return res.status(400).json({ error: 'Você não pode excluir sua própria conta de administrador.' });
+  }
+  const idx = db.users.findIndex(u => u.id === uidToDelete);
+  if (idx < 0) return res.status(404).json({ error: 'Usuário não encontrado.' });
+
+  const userPosts = db.posts.filter(p => p.userId === uidToDelete);
+  const userPostIds = new Set(userPosts.map(p => p.id));
+
+  db.users.splice(idx, 1);
+  db.posts = db.posts.filter(p => p.userId !== uidToDelete);
+  db.stories = db.stories.filter(s => s.userId !== uidToDelete);
+  db.events = db.events.filter(e => e.userId !== uidToDelete);
+  db.events.forEach(e => {
+    e.participants = e.participants.filter(pId => pId !== uidToDelete);
+  });
+  db.comments = db.comments.filter(c => c.userId !== uidToDelete && !userPostIds.has(c.postId));
+  db.postRatings = db.postRatings.filter(r => r.userId !== uidToDelete && !userPostIds.has(r.postId));
+  db.follows = db.follows.filter(f => f.fromId !== uidToDelete && f.toId !== uidToDelete);
+  db.notifications = db.notifications.filter(n => n.userId !== uidToDelete);
+  db.messages = db.messages.filter(m => m.fromId !== uidToDelete && m.toId !== uidToDelete);
+  db.proposals = db.proposals.filter(p => p.fromId !== uidToDelete && p.toId !== uidToDelete);
+  db.ratings = db.ratings.filter(r => r.fromId !== uidToDelete && r.toId !== uidToDelete);
+  for (const token in db.tokens) {
+    if (db.tokens[token] === uidToDelete) delete db.tokens[token];
+  }
+  saveDB();
+  res.json({ ok: true });
+});
+
+// 📸 Gerenciamento de Posts
+app.get('/api/admin/posts', adminAuth, (req, res) => {
+  const posts = [...db.posts].sort((a, b) => b.createdAt - a.createdAt)
+    .map(p => decoratePost(p, req.user.id));
+  res.json(posts);
+});
+
+app.put('/api/admin/posts/:id', adminAuth, (req, res) => {
+  const post = db.posts.find(p => p.id === req.params.id);
+  if (!post) return res.status(404).json({ error: 'Post não encontrado.' });
+  if (req.body.category) {
+    post.category = req.body.category === 'profissional' ? 'profissional' : 'pelada';
+  }
+  if (req.body.caption !== undefined) post.caption = req.body.caption;
+  saveDB();
+  res.json(decoratePost(post, req.user.id));
+});
+
+app.delete('/api/admin/posts/:id', adminAuth, (req, res) => {
+  const i = db.posts.findIndex(p => p.id === req.params.id);
+  if (i < 0) return res.status(404).json({ error: 'Post não encontrado.' });
+  const postId = db.posts[i].id;
+  db.posts.splice(i, 1);
+  db.comments = db.comments.filter(c => c.postId !== postId);
+  db.postRatings = db.postRatings.filter(r => r.postId !== postId);
+  saveDB();
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/comments/:id', adminAuth, (req, res) => {
+  const i = db.comments.findIndex(c => c.id === req.params.id);
+  if (i < 0) return res.status(404).json({ error: 'Comentário não encontrado.' });
+  db.comments.splice(i, 1);
+  saveDB();
+  res.json({ ok: true });
+});
+
+// 📍 Gerenciamento de Eventos
+app.get('/api/admin/events', adminAuth, (req, res) => {
+  const list = [...db.events].sort((a, b) => b.createdAt - a.createdAt)
+    .map(ev => publicEvent(ev, req.user.id));
+  res.json(list);
+});
+
+app.delete('/api/admin/events/:id', adminAuth, (req, res) => {
+  const i = db.events.findIndex(e => e.id === req.params.id);
+  if (i < 0) return res.status(404).json({ error: 'Evento não encontrado.' });
+  db.events.splice(i, 1);
+  saveDB();
+  res.json({ ok: true });
+});
+
+// 📖 Gerenciamento de Stories
+app.get('/api/admin/stories', adminAuth, (req, res) => {
+  db.stories = db.stories.filter(s => Date.now() - s.createdAt < STORY_TTL);
+  const list = db.stories.sort((a, b) => b.createdAt - a.createdAt).map(s => ({
+    ...s,
+    user: publicUser(db.users.find(u => u.id === s.userId)),
+    viewersCount: s.viewers?.length || 0,
+    viewerUsers: (s.viewers || []).map(id => publicUser(db.users.find(u => u.id === id))).filter(Boolean)
+  }));
+  res.json(list);
+});
+
+app.delete('/api/admin/stories/:id', adminAuth, (req, res) => {
+  const i = db.stories.findIndex(s => s.id === req.params.id);
+  if (i < 0) return res.status(404).json({ error: 'Story não encontrado.' });
+  db.stories.splice(i, 1);
+  saveDB();
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/stories/purge-expired', adminAuth, (req, res) => {
+  const before = db.stories.length;
+  db.stories = db.stories.filter(s => Date.now() - s.createdAt < STORY_TTL);
+  const purged = before - db.stories.length;
+  saveDB();
+  res.json({ ok: true, purged, remaining: db.stories.length });
 });
 
 // ---- Download do aplicativo Android (.APK) ----

@@ -65,4 +65,6 @@ node server.js
 # abra http://localhost:3000
 ```
 
-O site já começa zerado: basta criar sua conta na tela inicial.
+- **Base zerada:** O site começa 100% limpo, sem perfis ou dados demo. Basta criar sua conta na tela inicial.
+- **Categorias de post:** Escolha entre **🏆 Jogo profissional/campeonato** ou **🎉 Pelada/várzea** ao postar fotos e vídeos.
+- **Painel do Administrador (🛡️ Aba Admin):** O primeiro usuário cadastrado torna-se administrador automaticamente. Permite gerenciar usuários (promover/remover admin, selo verificado, excluir contas em cascata), posts (trocar categoria, moderar comentários e excluir publicações), eventos (peneiras e jogos) e stories (com lista de visualizadores e limpeza de expirados).

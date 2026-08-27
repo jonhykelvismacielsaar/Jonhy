@@ -168,10 +168,14 @@ async function enterApp() {
 }
 
 function renderShell() {
+  const isAdmin = ME && (ME.isAdmin || ME.role === 'admin');
   app.innerHTML = `
     <div class="topbar">
       <div class="brand"><img src="/img/logo.png" alt="">Vitrine FC</div>
-      <button class="bell" onclick="showTab('notifs')">🔔<span class="badge" id="b-notif" style="display:none"></span></button>
+      <div style="display:flex;align-items:center;gap:6px">
+        ${isAdmin ? `<button class="topbar-admin-pill" onclick="showTab('admin')" title="Painel do Administrador">🛡️ Admin</button>` : ''}
+        <button class="bell" onclick="showTab('notifs')">🔔<span class="badge" id="b-notif" style="display:none"></span></button>
+      </div>
     </div>
     <div class="screen" id="content"></div>
     <div class="nav">
@@ -181,6 +185,7 @@ function renderShell() {
       <button id="nav-search" onclick="showTab('search')"><span class="ico">🔎</span>Buscar</button>
       <button id="nav-chat" onclick="showTab('chat')"><span class="ico">💬</span>Chat<span class="badge" id="b-chat" style="display:none"></span></button>
       <button id="nav-profile" onclick="showTab('profile')"><span class="ico">👤</span>Perfil</button>
+      <button id="nav-admin" onclick="showTab('admin')"><span class="ico">🛡️</span>Admin</button>
     </div>`;
 }
 
@@ -206,7 +211,7 @@ function showTab(tab) {
   const nb = document.getElementById('nav-' + tab);
   if (nb) nb.classList.add('on');
   if (tab === 'props') { document.getElementById('nav-chat')?.classList.add('on'); }
-  ({ feed: renderFeed, reels: renderReels, events: renderEvents, search: renderSearch, props: renderProps, chat: renderConvs, profile: () => renderProfile(ME.id), notifs: renderNotifs })[tab]();
+  ({ feed: renderFeed, reels: renderReels, events: renderEvents, search: renderSearch, props: renderProps, chat: renderConvs, profile: () => renderProfile(ME.id), notifs: renderNotifs, admin: renderAdmin })[tab]();
 }
 
 // ============================================================
@@ -324,7 +329,7 @@ function openStories(groupIdx, storyIdx = 0) {
     <div class="sv-head">
       ${avatarHtml(g.user)}
       <div><b>${esc(g.user.name)}</b><span>${timeAgo(s.createdAt)} atrás</span></div>
-      ${s.userId === ME.id ? `<button class="sv-del" onclick="delStory('${s.id}')">🗑️</button>` : ''}
+      ${(s.userId === ME.id || ME.isAdmin) ? `<button class="sv-del" onclick="delStory('${s.id}')">🗑️</button>` : ''}
       <button class="sv-close" onclick="closeStories()">✕</button>
     </div>
     ${s.type === 'video'
@@ -387,7 +392,7 @@ function postHtml(p) {
         <button class="${liked ? 'liked' : ''}" onclick="likePost('${p.id}')">${liked ? '💛' : '🤍'} ${p.likes.length}</button>
         <button onclick="toggleComments('${p.id}')">💬 ${p.comments.length}</button>
         <button onclick="openChat('${p.user.id}', '${esc(p.user.name)}')">✉️ Chamar</button>
-        ${p.userId === ME.id ? `<button style="color:var(--danger)" onclick="delPost('${p.id}')">🗑️</button>` : ''}
+        ${(p.userId === ME.id || ME.isAdmin) ? `<button style="color:var(--danger)" onclick="delPost('${p.id}')" title="Excluir post">🗑️</button>` : ''}
       </div>
       <div class="comments" id="comments-${p.id}" data-open="0">
         ${p.comments.length > 2 ? `<button class="see-all" onclick="toggleComments('${p.id}')">Ver todos os ${p.comments.length} comentários</button>` : ''}
@@ -405,7 +410,7 @@ function postHtml(p) {
 function commentHtml(c) {
   return `<div class="comment" id="c-${c.id}">
     <b onclick="renderProfile('${c.user.id}')">${esc(c.user?.name || '?')}</b> ${esc(c.text)}
-    <span class="c-when">${timeAgo(c.createdAt)}${c.userId === ME.id ? ` · <a onclick="delComment('${c.id}')">excluir</a>` : ''}</span>
+    <span class="c-when">${timeAgo(c.createdAt)}${(c.userId === ME.id || ME.isAdmin) ? ` · <a onclick="delComment('${c.id}')">excluir</a>` : ''}</span>
   </div>`;
 }
 
@@ -670,7 +675,7 @@ function eventCardHtml(ev) {
       <div class="ev-meta">👤 Organizado por <b style="color:var(--yellow-soft);cursor:pointer" onclick="renderProfile('${ev.creator?.id}')">${esc(ev.creator?.name || '?')}</b> · 🙋 ${ev.participants.length} confirmado(s)</div>
       <div class="row2 mt" style="margin-top:10px">
         <button class="btn ${ev.joined ? 'btn-green' : 'btn-primary'} btn-sm" onclick="joinEvent('${ev.id}')">${ev.joined ? '✔️ Presença confirmada' : '🙋 Vou participar!'}</button>
-        ${ev.userId === ME.id
+        ${(ev.userId === ME.id || ME.isAdmin)
           ? `<button class="btn btn-danger btn-sm" onclick="delEvent('${ev.id}')">🗑️ Excluir</button>`
           : `<button class="btn btn-green btn-sm" onclick="openChat('${ev.creator?.id}', '${esc(ev.creator?.name || '')}')">💬 Falar c/ organizador</button>`}
       </div>
@@ -979,6 +984,9 @@ async function renderProfile(userId) {
         <button class="btn btn-green btn-sm" onclick="renderEditProfile()">✏️ Editar perfil</button>
         <button class="btn btn-primary btn-sm" onclick="shareProfile('${u.id}')">🔗 Compartilhar</button>
       </div>
+      <button class="btn ${ME.isAdmin ? 'btn-primary' : 'btn-outline'} btn-sm mt" style="width:100%" onclick="${ME.isAdmin ? "showTab('admin')" : "claimAdminAccess()"}">
+        ${ME.isAdmin ? '🛡️ Acessar Painel do Administrador' : '🛡️ Ativar Modo Administrador'}
+      </button>
       <button class="btn btn-danger btn-sm mt" style="width:100%" onclick="logout()">Sair da conta</button>` : `
       <div class="row2">
         <button class="btn btn-primary btn-sm" onclick="openProposal('${u.id}', '${esc(u.name)}')">🤝 Contratar / Chamar p/ jogo</button>
@@ -1507,6 +1515,671 @@ async function renderNotifs() {
       : '<div class="empty"><span class="big">🔔</span>Nenhuma notificação ainda.</div>'}`;
   await api('/notifications/read', { method: 'POST' });
   refreshBadges();
+}
+
+// ============================================================
+// PAINEL DO ADMINISTRADOR 🛡️
+// ============================================================
+let adminSubTab = 'overview';
+let _adminStats = null;
+let _adminUsers = [];
+let _adminUserRole = 'all';
+let _adminUserSearch = '';
+let _adminPosts = [];
+let _adminPostCat = 'all';
+let _adminPostType = 'all';
+let _adminPostSearch = '';
+let _adminEvents = [];
+let _adminEventType = 'all';
+let _adminEventTime = 'all';
+let _adminEventSearch = '';
+let _adminStories = [];
+let _adminStoryType = 'all';
+
+async function claimAdminAccess() {
+  try {
+    const res = await api('/admin/claim', { method: 'POST' });
+    ME = res.user;
+    toast('Modo administrador ativado com sucesso! 🛡️');
+    renderShell();
+    showTab('admin');
+  } catch (e) {
+    toast('Erro: ' + e.message);
+  }
+}
+
+async function renderAdmin() {
+  const c = $('#content');
+  if (!ME.isAdmin && ME.role !== 'admin') {
+    c.innerHTML = `
+      <div class="admin-locked">
+        <span class="admin-locked-icon">🛡️</span>
+        <h2>Painel do Administrador</h2>
+        <p class="sub">Acesso restrito para administradores do Vitrine FC.</p>
+        <div class="card" style="margin-top:20px;text-align:left">
+          <p style="font-size:13.5px;color:var(--muted);line-height:1.5">
+            Você está conectado como <b>${esc(ME.name)}</b> (${esc(ME.email)}).<br><br>
+            Ative o modo administrador nesta conta para gerenciar usuários, posts, eventos e stories.
+          </p>
+          <button class="btn btn-primary mt" onclick="claimAdminAccess()">🔑 Ativar Acesso de Administrador</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  c.innerHTML = `
+    <div class="admin-header">
+      <h2>🛡️ Painel do Administrador</h2>
+      <p class="sub">Gerenciamento completo da rede Vitrine FC</p>
+    </div>
+    <div class="admin-subnav">
+      <button class="admin-subnav-btn ${adminSubTab === 'overview' ? 'active' : ''}" onclick="switchAdminSubTab('overview')">📊 Visão Geral</button>
+      <button class="admin-subnav-btn ${adminSubTab === 'users' ? 'active' : ''}" onclick="switchAdminSubTab('users')">👥 Usuários</button>
+      <button class="admin-subnav-btn ${adminSubTab === 'posts' ? 'active' : ''}" onclick="switchAdminSubTab('posts')">📸 Posts</button>
+      <button class="admin-subnav-btn ${adminSubTab === 'events' ? 'active' : ''}" onclick="switchAdminSubTab('events')">📍 Eventos</button>
+      <button class="admin-subnav-btn ${adminSubTab === 'stories' ? 'active' : ''}" onclick="switchAdminSubTab('stories')">📖 Stories</button>
+    </div>
+    <div id="admin-view">
+      <p class="empty">Carregando painel… ⏳</p>
+    </div>`;
+
+  await loadAdminSubView();
+}
+
+async function switchAdminSubTab(sub) {
+  adminSubTab = sub;
+  document.querySelectorAll('.admin-subnav-btn').forEach(b => b.classList.remove('active'));
+  const btn = Array.from(document.querySelectorAll('.admin-subnav-btn')).find(b => b.getAttribute('onclick')?.includes(`'${sub}'`));
+  if (btn) btn.classList.add('active');
+  await loadAdminSubView();
+}
+
+async function loadAdminSubView() {
+  const container = document.getElementById('admin-view');
+  if (!container) return;
+  container.innerHTML = '<p class="empty">Carregando… ⏳</p>';
+  try {
+    if (adminSubTab === 'overview') await renderAdminOverview(container);
+    else if (adminSubTab === 'users') await renderAdminUsers(container);
+    else if (adminSubTab === 'posts') await renderAdminPosts(container);
+    else if (adminSubTab === 'events') await renderAdminEvents(container);
+    else if (adminSubTab === 'stories') await renderAdminStories(container);
+  } catch (e) {
+    container.innerHTML = `<div class="empty"><span class="big">⚠️</span>Erro ao carregar: ${esc(e.message)}</div>`;
+  }
+}
+
+// ---- Sub-aba 1: Visão Geral ----
+async function renderAdminOverview(c) {
+  _adminStats = await api('/admin/stats');
+  const s = _adminStats;
+  c.innerHTML = `
+    <div class="admin-stats-grid">
+      <div class="admin-stat-card" style="cursor:pointer" onclick="switchAdminSubTab('users')">
+        <div class="stat-icon">👥</div>
+        <div class="stat-num">${s.users.total}</div>
+        <div class="stat-lbl">Usuários</div>
+        <div class="stat-extra">
+          ${s.users.byRole.jogador || 0} jog · ${s.users.byRole.goleiro || 0} gol · ${s.users.byRole.tecnico || 0} téc<br>
+          ${s.users.byRole.arbitro || 0} árb · ${s.users.byRole.olheiro || 0} olh
+        </div>
+      </div>
+
+      <div class="admin-stat-card" style="cursor:pointer" onclick="switchAdminSubTab('posts')">
+        <div class="stat-icon">📸</div>
+        <div class="stat-num">${s.posts.total}</div>
+        <div class="stat-lbl">Publicações</div>
+        <div class="stat-extra">
+          🏆 ${s.posts.profissional} prof · 🎉 ${s.posts.pelada} pelada<br>
+          🎥 ${s.posts.video} vídeos · 📸 ${s.posts.photo} fotos
+        </div>
+      </div>
+
+      <div class="admin-stat-card" style="cursor:pointer" onclick="switchAdminSubTab('events')">
+        <div class="stat-icon">📍</div>
+        <div class="stat-num">${s.events.total}</div>
+        <div class="stat-lbl">Eventos / Jogos</div>
+        <div class="stat-extra">
+          🥅 ${s.events.peneiras} peneiras · ⚽ ${s.events.jogos} jogos<br>
+          🙋 ${s.events.joined} confirmações
+        </div>
+      </div>
+
+      <div class="admin-stat-card" style="cursor:pointer" onclick="switchAdminSubTab('stories')">
+        <div class="stat-icon">📖</div>
+        <div class="stat-num">${s.stories.total}</div>
+        <div class="stat-lbl">Stories Ativos</div>
+        <div class="stat-extra">
+          👀 ${s.stories.views} visualizações totais<br>
+          (expiram em 24h)
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <h4 style="margin-bottom:10px;color:var(--yellow);font-size:14px">⚡ Atalhos de Gerenciamento</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button class="btn btn-outline btn-sm" onclick="switchAdminSubTab('users')">👥 Gerenciar Usuários</button>
+        <button class="btn btn-outline btn-sm" onclick="switchAdminSubTab('posts')">📸 Gerenciar Posts</button>
+        <button class="btn btn-outline btn-sm" onclick="switchAdminSubTab('events')">📍 Gerenciar Eventos</button>
+        <button class="btn btn-outline btn-sm" onclick="switchAdminSubTab('stories')">📖 Gerenciar Stories</button>
+      </div>
+      <button class="btn btn-danger btn-sm mt" style="width:100%" onclick="adminPurgeExpiredStories()">🧹 Limpar stories expirados (>24h)</button>
+    </div>
+
+    <div class="card">
+      <h4 style="margin-bottom:8px;color:var(--yellow);font-size:14px">⚙️ Status do Sistema</h4>
+      <p style="font-size:12.5px;color:var(--muted);line-height:1.6">
+        • <b>Base de dados:</b> Zerada sem contas demo (pronta para uso real)<br>
+        • <b>Separação de categorias:</b> 🏆 Profissional × 🎉 Pelada ativa<br>
+        • <b>Total de mensagens no chat:</b> ${s.messages.total}<br>
+        • <b>Total de propostas de contratação/freela:</b> ${s.proposals.total}<br>
+        • <b>Administradores:</b> ${s.users.admins}<br>
+        • <b>Contas verificadas:</b> ${s.users.verified}
+      </p>
+    </div>`;
+}
+
+// ---- Sub-aba 2: Gerenciamento de Usuários ----
+async function renderAdminUsers(c) {
+  _adminUsers = await api('/admin/users');
+  c.innerHTML = `
+    <div class="admin-search-box">
+      <input id="au-search" placeholder="🔍 Buscar por nome, email ou cidade…" value="${esc(_adminUserSearch)}" oninput="_adminUserSearch=this.value; drawAdminUsersList();">
+    </div>
+    <div class="admin-filter-bar">
+      <button class="admin-pill ${_adminUserRole === 'all' ? 'on' : ''}" onclick="_adminUserRole='all'; drawAdminUsersList();">Todos (${_adminUsers.length})</button>
+      <button class="admin-pill ${_adminUserRole === 'jogador' ? 'on' : ''}" onclick="_adminUserRole='jogador'; drawAdminUsersList();">🏃 Jogadores</button>
+      <button class="admin-pill ${_adminUserRole === 'goleiro' ? 'on' : ''}" onclick="_adminUserRole='goleiro'; drawAdminUsersList();">🧤 Goleiros</button>
+      <button class="admin-pill ${_adminUserRole === 'tecnico' ? 'on' : ''}" onclick="_adminUserRole='tecnico'; drawAdminUsersList();">📋 Técnicos</button>
+      <button class="admin-pill ${_adminUserRole === 'arbitro' ? 'on' : ''}" onclick="_adminUserRole='arbitro'; drawAdminUsersList();">🟨 Árbitros</button>
+      <button class="admin-pill ${_adminUserRole === 'olheiro' ? 'on' : ''}" onclick="_adminUserRole='olheiro'; drawAdminUsersList();">🔎 Olheiros</button>
+      <button class="admin-pill ${_adminUserRole === 'admin' ? 'on' : ''}" onclick="_adminUserRole='admin'; drawAdminUsersList();">🛡️ Admins</button>
+      <button class="admin-pill ${_adminUserRole === 'verified' ? 'on' : ''}" onclick="_adminUserRole='verified'; drawAdminUsersList();">✅ Verificados</button>
+    </div>
+    <div id="au-list-container"></div>`;
+  drawAdminUsersList();
+}
+
+function drawAdminUsersList() {
+  const container = document.getElementById('au-list-container');
+  if (!container) return;
+  let list = _adminUsers;
+  if (_adminUserRole === 'admin') list = list.filter(u => u.isAdmin);
+  else if (_adminUserRole === 'verified') list = list.filter(u => u.verified);
+  else if (_adminUserRole !== 'all') list = list.filter(u => u.role === _adminUserRole);
+
+  if (_adminUserSearch.trim()) {
+    const q = _adminUserSearch.trim().toLowerCase();
+    list = list.filter(u =>
+      (u.name || '').toLowerCase().includes(q) ||
+      (u.email || '').toLowerCase().includes(q) ||
+      (u.nickname || '').toLowerCase().includes(q) ||
+      (u.city || '').toLowerCase().includes(q) ||
+      (u.position || '').toLowerCase().includes(q)
+    );
+  }
+
+  document.querySelectorAll('.admin-filter-bar .admin-pill').forEach(b => {
+    const isRole = b.getAttribute('onclick')?.includes(`'${_adminUserRole}'`);
+    b.classList.toggle('on', !!isRole);
+  });
+
+  if (!list.length) {
+    container.innerHTML = `<div class="empty"><span class="big">👥</span>Nenhum usuário encontrado com esses filtros.</div>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="admin-count-bar">
+      <span>Mostrando <b>${list.length}</b> de ${_adminUsers.length} usuários</span>
+    </div>
+    ${list.map(u => `
+      <div class="admin-card" id="auc-${u.id}">
+        <div class="admin-card-head">
+          ${avatarHtml(u)}
+          <div class="who">
+            <b>${esc(u.name)} ${u.nickname ? `("${esc(u.nickname)}")` : ''}</b>
+            <span>${esc(u.email)}</span>
+            <div class="admin-badge-row">
+              <span class="badge-role">${ROLES[u.role]?.emoji || '⚽'} ${ROLES[u.role]?.label || u.role}</span>
+              ${u.isAdmin ? '<span class="badge-admin">🛡️ Admin</span>' : ''}
+              ${u.verified ? '<span class="badge-verified">✅ Verificado</span>' : ''}
+              ${u.position ? `<span class="badge-role">${esc(u.position)}</span>` : ''}
+            </div>
+          </div>
+        </div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.5">
+          ${u.city ? `📍 ${esc(u.city)}${u.state ? '/' + esc(u.state) : ''} · ` : ''}
+          Cadastrado ${timeAgo(u.createdAt)} · <b>${u.postsCount || 0}</b> post(s) · <b>${u.storiesCount || 0}</b> story(ies) · <b>${u.eventsCount || 0}</b> evento(s) · OVR <b>${u.overall}</b>
+        </div>
+        <div class="admin-actions">
+          <button class="btn btn-outline" onclick="renderProfile('${u.id}')">👁️ Perfil</button>
+          <button class="btn btn-primary" onclick="adminToggleUserAdmin('${u.id}', ${!u.isAdmin})">${u.isAdmin ? 'Remover Admin' : '👑 Tornar Admin'}</button>
+          <button class="btn btn-green" onclick="adminToggleUserVerified('${u.id}', ${!u.verified})">${u.verified ? 'Remover Selo' : '✅ Verificar'}</button>
+          ${u.id !== ME.id ? `<button class="btn btn-danger" onclick="adminDeleteUser('${u.id}', '${esc(u.name)}')">🗑️ Excluir</button>` : ''}
+        </div>
+      </div>`).join('')}`;
+}
+
+async function adminToggleUserAdmin(userId, makeAdmin) {
+  try {
+    const updated = await api('/admin/users/' + userId, { method: 'PUT', body: { isAdmin: makeAdmin } });
+    const u = _adminUsers.find(x => x.id === userId);
+    if (u) u.isAdmin = updated.isAdmin;
+    if (userId === ME.id) ME.isAdmin = updated.isAdmin;
+    toast(makeAdmin ? 'Usuário promovido a Administrador! 👑' : 'Acesso de administrador removido.');
+    drawAdminUsersList();
+  } catch (e) { toast('Erro: ' + e.message); }
+}
+
+async function adminToggleUserVerified(userId, verify) {
+  try {
+    const updated = await api('/admin/users/' + userId, { method: 'PUT', body: { verified: verify } });
+    const u = _adminUsers.find(x => x.id === userId);
+    if (u) u.verified = updated.verified;
+    toast(verify ? 'Selo de verificado concedido! ✅' : 'Selo de verificado removido.');
+    drawAdminUsersList();
+  } catch (e) { toast('Erro: ' + e.message); }
+}
+
+async function adminDeleteUser(userId, userName) {
+  if (!confirm(`ATENÇÃO: Deseja realmente excluir o usuário "${userName}"?\n\nTODOS os posts, comentários, stories e eventos deste usuário serão apagados permanentemente!`)) return;
+  try {
+    await api('/admin/users/' + userId, { method: 'DELETE' });
+    _adminUsers = _adminUsers.filter(u => u.id !== userId);
+    toast('Usuário e todos os seus dados foram excluídos! 🗑️');
+    drawAdminUsersList();
+  } catch (e) { toast('Erro: ' + e.message); }
+}
+
+// ---- Sub-aba 3: Gerenciamento de Posts ----
+async function renderAdminPosts(c) {
+  _adminPosts = await api('/admin/posts');
+  c.innerHTML = `
+    <div class="admin-search-box">
+      <input id="ap-search" placeholder="🔍 Buscar por legenda ou autor…" value="${esc(_adminPostSearch)}" oninput="_adminPostSearch=this.value; drawAdminPostsList();">
+    </div>
+    <div class="admin-filter-bar">
+      <button class="admin-pill ${_adminPostCat === 'all' ? 'on' : ''}" onclick="_adminPostCat='all'; drawAdminPostsList();">Todas categorias (${_adminPosts.length})</button>
+      <button class="admin-pill ${_adminPostCat === 'profissional' ? 'on' : ''}" onclick="_adminPostCat='profissional'; drawAdminPostsList();">🏆 Profissional</button>
+      <button class="admin-pill ${_adminPostCat === 'pelada' ? 'on' : ''}" onclick="_adminPostCat='pelada'; drawAdminPostsList();">🎉 Pelada</button>
+      <button class="admin-pill ${_adminPostType === 'all' ? 'on' : ''}" onclick="_adminPostType='all'; drawAdminPostsList();">Todos tipos</button>
+      <button class="admin-pill ${_adminPostType === 'photo' ? 'on' : ''}" onclick="_adminPostType='photo'; drawAdminPostsList();">📸 Fotos</button>
+      <button class="admin-pill ${_adminPostType === 'video' ? 'on' : ''}" onclick="_adminPostType='video'; drawAdminPostsList();">🎥 Vídeos</button>
+    </div>
+    <div id="ap-list-container"></div>`;
+  drawAdminPostsList();
+}
+
+function drawAdminPostsList() {
+  const container = document.getElementById('ap-list-container');
+  if (!container) return;
+  let list = _adminPosts;
+  if (_adminPostCat === 'profissional') list = list.filter(p => p.category === 'profissional');
+  else if (_adminPostCat === 'pelada') list = list.filter(p => p.category !== 'profissional');
+
+  if (_adminPostType === 'photo') list = list.filter(p => p.type !== 'video');
+  else if (_adminPostType === 'video') list = list.filter(p => p.type === 'video');
+
+  if (_adminPostSearch.trim()) {
+    const q = _adminPostSearch.trim().toLowerCase();
+    list = list.filter(p =>
+      (p.caption || '').toLowerCase().includes(q) ||
+      (p.user?.name || '').toLowerCase().includes(q)
+    );
+  }
+
+  document.querySelectorAll('.admin-filter-bar .admin-pill').forEach(b => {
+    const isCat = b.getAttribute('onclick')?.includes(`_adminPostCat='${_adminPostCat}'`);
+    const isType = b.getAttribute('onclick')?.includes(`_adminPostType='${_adminPostType}'`);
+    b.classList.toggle('on', !!(isCat || isType));
+  });
+
+  if (!list.length) {
+    container.innerHTML = `<div class="empty"><span class="big">📸</span>Nenhuma publicação encontrada com esses filtros.</div>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="admin-count-bar">
+      <span>Mostrando <b>${list.length}</b> de ${_adminPosts.length} posts</span>
+    </div>
+    ${list.map(p => `
+      <div class="admin-card" id="apc-${p.id}">
+        <div class="admin-card-head">
+          ${avatarHtml(p.user)}
+          <div class="who">
+            <b>${esc(p.user?.name || '?')}</b>
+            <span>${ROLES[p.user?.role]?.emoji || ''} ${esc(p.user?.position || '')} · ${timeAgo(p.createdAt)}</span>
+          </div>
+          <div>${postCategoryHtml(p)}</div>
+        </div>
+
+        <div class="admin-media-box">
+          ${p.type === 'video'
+            ? `<video src="${esc(p.url)}" controls playsinline preload="metadata"></video>`
+            : `<img src="${esc(p.url)}" alt="">`}
+        </div>
+
+        ${p.caption ? `<p style="font-size:13px;margin-top:8px;line-height:1.4">${esc(p.caption)}</p>` : '<p style="font-size:12px;color:var(--muted);margin-top:6px"><i>Sem legenda</i></p>'}
+
+        <div style="font-size:11.5px;color:var(--muted);margin-top:6px">
+          💛 <b>${p.likes.length}</b> curtida(s) · 💬 <b>${p.comments.length}</b> comentário(s) · ⭐ <b>${p.starsAvg ?? '—'}</b> (${p.starsCount || 0} notas)
+        </div>
+
+        <div class="admin-actions">
+          <button class="btn btn-outline" onclick="adminTogglePostCategory('${p.id}', '${p.category === 'profissional' ? 'pelada' : 'profissional'}')">
+            🔄 Mudar p/ ${p.category === 'profissional' ? '🎉 Pelada' : '🏆 Profissional'}
+          </button>
+          <button class="btn btn-green" onclick="adminOpenCommentsModal('${p.id}')">💬 Comentários (${p.comments.length})</button>
+          <button class="btn btn-danger" onclick="adminDeletePost('${p.id}')">🗑️ Excluir Post</button>
+        </div>
+      </div>`).join('')}`;
+}
+
+async function adminTogglePostCategory(postId, newCategory) {
+  try {
+    const updated = await api('/admin/posts/' + postId, { method: 'PUT', body: { category: newCategory } });
+    const p = _adminPosts.find(x => x.id === postId);
+    if (p) p.category = updated.category;
+    toast(`Categoria alterada para "${newCategory === 'profissional' ? '🏆 Profissional' : '🎉 Pelada'}"!`);
+    drawAdminPostsList();
+  } catch (e) { toast('Erro: ' + e.message); }
+}
+
+async function adminDeletePost(postId) {
+  if (!confirm('Deseja excluir esta publicação permanentemente?')) return;
+  try {
+    await api('/admin/posts/' + postId, { method: 'DELETE' });
+    _adminPosts = _adminPosts.filter(p => p.id !== postId);
+    toast('Publicação excluída pelo administrador! 🗑️');
+    drawAdminPostsList();
+  } catch (e) { toast('Erro: ' + e.message); }
+}
+
+async function adminOpenCommentsModal(postId) {
+  const post = _adminPosts.find(p => p.id === postId);
+  if (!post) return;
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  const renderComments = () => {
+    bg.innerHTML = `
+      <div class="modal">
+        <h3>💬 Comentários do Post (${post.comments.length})</h3>
+        <p class="sub" style="margin-bottom:10px">Autor do post: <b>${esc(post.user?.name || '?')}</b></p>
+        <div class="modal-admin-list">
+          ${post.comments.length ? post.comments.map(c => `
+            <div class="modal-admin-item">
+              <div style="flex:1;min-width:0;padding-right:8px">
+                <b style="cursor:pointer;color:var(--yellow-soft)" onclick="renderProfile('${c.user?.id}')">${esc(c.user?.name || '?')}</b>: ${esc(c.text)}
+                <div style="font-size:10.5px;color:var(--muted);margin-top:2px">${timeAgo(c.createdAt)}</div>
+              </div>
+              <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="adminDeleteComment('${postId}', '${c.id}')">🗑️</button>
+            </div>`).join('') : '<p class="empty" style="padding:16px 0">Nenhum comentário neste post.</p>'}
+        </div>
+        <button class="btn btn-primary mt" onclick="this.closest('.modal-bg').remove()">Fechar</button>
+      </div>`;
+    bg.onclick = e => { if (e.target === bg) bg.remove(); };
+  };
+  renderComments();
+  window._refreshAdminCommentsModal = renderComments;
+  document.body.appendChild(bg);
+}
+
+async function adminDeleteComment(postId, commentId) {
+  if (!confirm('Excluir este comentário?')) return;
+  try {
+    await api('/admin/comments/' + commentId, { method: 'DELETE' });
+    const post = _adminPosts.find(p => p.id === postId);
+    if (post) post.comments = post.comments.filter(c => c.id !== commentId);
+    toast('Comentário excluído! 🗑️');
+    if (window._refreshAdminCommentsModal) window._refreshAdminCommentsModal();
+    drawAdminPostsList();
+  } catch (e) { toast('Erro: ' + e.message); }
+}
+
+// ---- Sub-aba 4: Gerenciamento de Eventos ----
+async function renderAdminEvents(c) {
+  _adminEvents = await api('/admin/events');
+  c.innerHTML = `
+    <div class="admin-search-box">
+      <input id="ae-search" placeholder="🔍 Buscar por título, cidade ou organizador…" value="${esc(_adminEventSearch)}" oninput="_adminEventSearch=this.value; drawAdminEventsList();">
+    </div>
+    <div class="admin-filter-bar">
+      <button class="admin-pill ${_adminEventType === 'all' ? 'on' : ''}" onclick="_adminEventType='all'; drawAdminEventsList();">Todos eventos (${_adminEvents.length})</button>
+      <button class="admin-pill ${_adminEventType === 'peneira' ? 'on' : ''}" onclick="_adminEventType='peneira'; drawAdminEventsList();">🥅 Peneiras</button>
+      <button class="admin-pill ${_adminEventType === 'jogo' ? 'on' : ''}" onclick="_adminEventType='jogo'; drawAdminEventsList();">⚽ Jogos Abertos</button>
+      <button class="admin-pill ${_adminEventTime === 'all' ? 'on' : ''}" onclick="_adminEventTime='all'; drawAdminEventsList();">Qualquer data</button>
+      <button class="admin-pill ${_adminEventTime === 'future' ? 'on' : ''}" onclick="_adminEventTime='future'; drawAdminEventsList();">⏳ Futuros</button>
+      <button class="admin-pill ${_adminEventTime === 'past' ? 'on' : ''}" onclick="_adminEventTime='past'; drawAdminEventsList();">⌛ Passados</button>
+    </div>
+    <div id="ae-list-container"></div>`;
+  drawAdminEventsList();
+}
+
+function drawAdminEventsList() {
+  const container = document.getElementById('ae-list-container');
+  if (!container) return;
+  let list = _adminEvents;
+  if (_adminEventType === 'peneira') list = list.filter(e => e.type === 'peneira');
+  else if (_adminEventType === 'jogo') list = list.filter(e => e.type !== 'peneira');
+
+  const now = Date.now();
+  if (_adminEventTime === 'future') list = list.filter(e => e.date >= now);
+  else if (_adminEventTime === 'past') list = list.filter(e => e.date < now);
+
+  if (_adminEventSearch.trim()) {
+    const q = _adminEventSearch.trim().toLowerCase();
+    list = list.filter(e =>
+      (e.title || '').toLowerCase().includes(q) ||
+      (e.city || '').toLowerCase().includes(q) ||
+      (e.creator?.name || '').toLowerCase().includes(q) ||
+      (e.place || '').toLowerCase().includes(q)
+    );
+  }
+
+  document.querySelectorAll('.admin-filter-bar .admin-pill').forEach(b => {
+    const isType = b.getAttribute('onclick')?.includes(`_adminEventType='${_adminEventType}'`);
+    const isTime = b.getAttribute('onclick')?.includes(`_adminEventTime='${_adminEventTime}'`);
+    b.classList.toggle('on', !!(isType || isTime));
+  });
+
+  if (!list.length) {
+    container.innerHTML = `<div class="empty"><span class="big">📍</span>Nenhum evento encontrado com esses filtros.</div>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="admin-count-bar">
+      <span>Mostrando <b>${list.length}</b> de ${_adminEvents.length} eventos</span>
+    </div>
+    ${list.map(e => `
+      <div class="admin-card" id="aec-${e.id}">
+        <div class="admin-card-head">
+          <div style="font-size:24px">${e.type === 'peneira' ? '🥅' : '⚽'}</div>
+          <div class="who">
+            <b>${esc(e.title)}</b>
+            <span>${e.type === 'peneira' ? 'Peneira / Avaliação' : 'Jogo Aberto / Racha'} · 📅 ${new Date(e.date).toLocaleString('pt-BR')}</span>
+          </div>
+        </div>
+
+        <div style="font-size:12.5px;color:var(--text);margin-top:8px;line-height:1.5">
+          📍 <b>${esc(e.place || 'Local não especificado')}</b> — ${esc(e.city)}/${esc(e.state || '')}<br>
+          💰 Custo: <b>${esc(e.fee || 'Gratuito')}</b> · 👤 Org: <b>${esc(e.creator?.name || '?')}</b><br>
+          🙋 <b>${e.participants.length}</b> participante(s) confirmado(s)
+          ${e.description ? `<p style="font-size:12px;color:var(--muted);margin-top:6px">${esc(e.description)}</p>` : ''}
+        </div>
+
+        <div class="admin-actions">
+          <button class="btn btn-outline" onclick="adminOpenParticipantsModal('${e.id}')">👥 Ver Confirmados (${e.participants.length})</button>
+          <button class="btn btn-danger" onclick="adminDeleteEvent('${e.id}', '${esc(e.title)}')">🗑️ Excluir Evento</button>
+        </div>
+      </div>`).join('')}`;
+}
+
+async function adminDeleteEvent(eventId, eventTitle) {
+  if (!confirm(`Deseja excluir o evento "${eventTitle}"?`)) return;
+  try {
+    await api('/admin/events/' + eventId, { method: 'DELETE' });
+    _adminEvents = _adminEvents.filter(e => e.id !== eventId);
+    toast('Evento excluído pelo administrador! 🗑️');
+    drawAdminEventsList();
+  } catch (e) { toast('Erro: ' + e.message); }
+}
+
+function adminOpenParticipantsModal(eventId) {
+  const ev = _adminEvents.find(e => e.id === eventId);
+  if (!ev) return;
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>🙋 Participantes Confirmados (${ev.participants.length})</h3>
+      <p class="sub" style="margin-bottom:10px">${esc(ev.title)}</p>
+      <div class="modal-admin-list">
+        ${ev.participantUsers && ev.participantUsers.length ? ev.participantUsers.map(u => `
+          <div class="modal-admin-item" style="cursor:pointer" onclick="renderProfile('${u.id}'); document.querySelector('.modal-bg')?.remove();">
+            <div style="display:flex;align-items:center;gap:8px">
+              ${avatarHtml(u, 'sm')}
+              <div>
+                <b>${esc(u.name)}</b>
+                <div style="font-size:11px;color:var(--muted)">${ROLES[u.role]?.emoji || ''} ${esc(u.position || ROLES[u.role]?.label || '')}</div>
+              </div>
+            </div>
+            <span class="badge-role">Ver perfil</span>
+          </div>`).join('') : '<p class="empty" style="padding:16px 0">Nenhum participante confirmado ainda.</p>'}
+      </div>
+      <button class="btn btn-primary mt" onclick="this.closest('.modal-bg').remove()">Fechar</button>
+    </div>`;
+  bg.onclick = e => { if (e.target === bg) bg.remove(); };
+  document.body.appendChild(bg);
+}
+
+// ---- Sub-aba 5: Gerenciamento de Stories ----
+async function renderAdminStories(c) {
+  _adminStories = await api('/admin/stories');
+  c.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div class="admin-filter-bar" style="margin-bottom:0;padding-bottom:0">
+        <button class="admin-pill ${_adminStoryType === 'all' ? 'on' : ''}" onclick="_adminStoryType='all'; drawAdminStoriesList();">Todos (${_adminStories.length})</button>
+        <button class="admin-pill ${_adminStoryType === 'photo' ? 'on' : ''}" onclick="_adminStoryType='photo'; drawAdminStoriesList();">📸 Fotos</button>
+        <button class="admin-pill ${_adminStoryType === 'video' ? 'on' : ''}" onclick="_adminStoryType='video'; drawAdminStoriesList();">🎥 Vídeos</button>
+      </div>
+      <button class="btn btn-danger btn-sm" style="font-size:10.5px;padding:4px 8px;flex-shrink:0" onclick="adminPurgeExpiredStories()">🧹 Limpar expirados</button>
+    </div>
+    <div id="as-list-container"></div>`;
+  drawAdminStoriesList();
+}
+
+function drawAdminStoriesList() {
+  const container = document.getElementById('as-list-container');
+  if (!container) return;
+  let list = _adminStories;
+  if (_adminStoryType === 'photo') list = list.filter(s => s.type !== 'video');
+  else if (_adminStoryType === 'video') list = list.filter(s => s.type === 'video');
+
+  document.querySelectorAll('.admin-filter-bar .admin-pill').forEach(b => {
+    const isType = b.getAttribute('onclick')?.includes(`_adminStoryType='${_adminStoryType}'`);
+    b.classList.toggle('on', !!isType);
+  });
+
+  if (!list.length) {
+    container.innerHTML = `<div class="empty"><span class="big">📖</span>Nenhum story ativo nas últimas 24 horas.</div>`;
+    return;
+  }
+
+  const now = Date.now();
+  const STORY_TTL = 86400000;
+
+  container.innerHTML = `
+    <div class="admin-count-bar">
+      <span>Mostrando <b>${list.length}</b> de ${_adminStories.length} stories ativos</span>
+    </div>
+    ${list.map(s => {
+      const remainingMs = Math.max(0, (s.createdAt + STORY_TTL) - now);
+      const remHours = Math.floor(remainingMs / 3600000);
+      const remMin = Math.floor((remainingMs % 3600000) / 60000);
+      return `
+      <div class="admin-card" id="asc-${s.id}">
+        <div class="admin-card-head">
+          ${avatarHtml(s.user)}
+          <div class="who">
+            <b>${esc(s.user?.name || '?')}</b>
+            <span>${ROLES[s.user?.role]?.emoji || ''} ${esc(s.user?.position || '')} · Postado ${timeAgo(s.createdAt)}</span>
+          </div>
+          <span class="badge-role">${s.type === 'video' ? '🎥 Vídeo' : '📸 Foto'}</span>
+        </div>
+
+        <div class="admin-media-box">
+          ${s.type === 'video'
+            ? `<video src="${esc(s.url)}" controls playsinline preload="metadata"></video>`
+            : `<img src="${esc(s.url)}" alt="">`}
+        </div>
+
+        ${s.caption ? `<p style="font-size:13px;margin-top:8px;line-height:1.4">${esc(s.caption)}</p>` : ''}
+
+        <div style="font-size:11.5px;color:var(--muted);margin-top:6px">
+          ⏳ Expira em <b>${remHours}h ${remMin}min</b> · 👀 <b>${s.viewersCount}</b> visualização(ões)
+        </div>
+
+        <div class="admin-actions">
+          <button class="btn btn-outline" onclick="adminOpenViewersModal('${s.id}')">👀 Visualizadores (${s.viewersCount})</button>
+          <button class="btn btn-danger" onclick="adminDeleteStory('${s.id}')">🗑️ Excluir Story</button>
+        </div>
+      </div>`;
+    }).join('')}`;
+}
+
+async function adminDeleteStory(storyId) {
+  if (!confirm('Deseja excluir este story permanentemente?')) return;
+  try {
+    await api('/admin/stories/' + storyId, { method: 'DELETE' });
+    _adminStories = _adminStories.filter(s => s.id !== storyId);
+    toast('Story excluído pelo administrador! 🗑️');
+    drawAdminStoriesList();
+  } catch (e) { toast('Erro: ' + e.message); }
+}
+
+function adminOpenViewersModal(storyId) {
+  const s = _adminStories.find(x => x.id === storyId);
+  if (!s) return;
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>👀 Visualizadores do Story (${s.viewersCount})</h3>
+      <p class="sub" style="margin-bottom:10px">Autor: <b>${esc(s.user?.name || '?')}</b></p>
+      <div class="modal-admin-list">
+        ${s.viewerUsers && s.viewerUsers.length ? s.viewerUsers.map(u => `
+          <div class="modal-admin-item" style="cursor:pointer" onclick="renderProfile('${u.id}'); document.querySelector('.modal-bg')?.remove();">
+            <div style="display:flex;align-items:center;gap:8px">
+              ${avatarHtml(u, 'sm')}
+              <div>
+                <b>${esc(u.name)}</b>
+                <div style="font-size:11px;color:var(--muted)">${ROLES[u.role]?.emoji || ''} ${esc(u.position || ROLES[u.role]?.label || '')}</div>
+              </div>
+            </div>
+            <span class="badge-role">Ver perfil</span>
+          </div>`).join('') : '<p class="empty" style="padding:16px 0">Nenhum usuário visualizou ainda.</p>'}
+      </div>
+      <button class="btn btn-primary mt" onclick="this.closest('.modal-bg').remove()">Fechar</button>
+    </div>`;
+  bg.onclick = e => { if (e.target === bg) bg.remove(); };
+  document.body.appendChild(bg);
+}
+
+async function adminPurgeExpiredStories() {
+  try {
+    const res = await api('/admin/stories/purge-expired', { method: 'POST' });
+    toast(`Stories limpos: ${res.purged} expirado(s) removido(s)! 🧹`);
+    if (adminSubTab === 'stories') {
+      _adminStories = await api('/admin/stories');
+      drawAdminStoriesList();
+    } else if (adminSubTab === 'overview') {
+      await renderAdminOverview($('#admin-view'));
+    }
+  } catch (e) { toast('Erro: ' + e.message); }
 }
 
 // ============================================================

@@ -65,4 +65,4 @@ node server.js
 # abra http://localhost:3000
 ```
 
-**Contas demo** (senha `123456`): thiago@demo.com · carlao@demo.com · ana@demo.com · beto@demo.com
+O site já começa zerado: basta criar sua conta na tela inicial.

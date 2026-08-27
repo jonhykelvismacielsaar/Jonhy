@@ -145,29 +145,6 @@ como PWA instalável e como aplicativo Android (.APK).
 
 ---
 
-## CONTAS DE DEMONSTRAÇÃO (senha de todas: 123456)
-1. thiago@demo.com — Thiago Souza "Thiaguinho", atacante, 22 anos,
-   1,78m, 72kg, destro, semiprofissional, Juína-MT, ex-Juína EC e
-   Operário VG, 87 jogos, 52 gols, 18 assistências, 3 títulos,
-   freela R$ 150/jogo
-2. carlao@demo.com — Carlos Mendes "Carlão Paredão", goleiro, 28 anos,
-   1,90m, 88kg, amador, Cuiabá-MT, ex-Mixto e União de Rondonópolis,
-   140 jogos, 612 defesas, 23 pênaltis defendidos, 48 jogos sem sofrer
-   gol, 5 títulos, freela R$ 120/jogo
-3. beto@demo.com — Roberto Lima "Professor Beto", técnico, 45 anos,
-   Sinop-MT, licença CBF C, 20 anos formando atletas
-4. ana@demo.com — Ana Paula Ferreira "Aninha 10", meia, 20 anos,
-   canhota, base, Juína-MT, 45 jogos, 12 gols, 26 assistências, 2 títulos
-
-## EVENTOS DE DEMONSTRAÇÃO
-1. 🥅 Peneira Sub-20 — Sinop FC (CT do Sinop FC, Sinop-MT, gratuito)
-2. ⚽ Precisa-se de goleiro — Racha de domingo (Arena Society Beira Rio,
-   Cuiabá-MT, R$ 25 por jogador, churrasco depois)
-3. 🥅 Avaliação de goleiros — Escolinha Craques do Norte
-   (Campo Municipal de Juína, 14 a 18 anos, gratuito)
-
----
-
 ## INFORMAÇÕES TÉCNICAS
 - Servidor: Node.js + Express, porta 3000
 - Banco de dados: arquivo JSON (app/data/db.json) — salvo permanentemente

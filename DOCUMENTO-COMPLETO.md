@@ -50,22 +50,22 @@ como PWA instalável e como aplicativo Android (.APK).
 
 ---
 
-## AS 6 ABAS DO APLICATIVO
+## AS 7 ABAS DO APLICATIVO
 
 ### 🏟️ FEED
 - Stories no topo (bolinhas com anel amarelo = não visto)
-- Postar foto ou vídeo jogando, com legenda
+- Postar foto ou vídeo jogando, com legenda e categoria (🏆 Profissional × 🎉 Pelada)
 - Curtir (💛), comentar (💬), avaliar o lance de 1 a 5 estrelas (⭐)
 - Média de estrelas de cada post (ex: 4.5 ⭐ (12))
 - Chamar o autor no chat direto do post
-- Excluir os próprios posts e comentários
+- Excluir os próprios posts e comentários (ou via administrador)
 
 ### 📖 STORIES DE JOGO (dentro do Feed)
 - Foto ou vídeo que some em 24 horas, com legenda
 - Visualizador em tela cheia com barras de progresso
 - Toque à direita/esquerda para avançar/voltar, avanço automático
 - Contador de visualizações do seu story
-- Excluir o próprio story
+- Excluir o próprio story (ou via administrador)
 
 ### 🎬 LANCES (REELS)
 - Todos os vídeos em tela cheia, rolagem vertical com encaixe
@@ -80,7 +80,7 @@ como PWA instalável e como aplicativo Android (.APK).
   data e hora, custo, e ponto exato tocando no mapa
 - Botão "🙋 Vou participar!" (organizador recebe notificação)
 - Contador de confirmados, falar com o organizador no chat
-- Excluir o próprio evento
+- Excluir o próprio evento (ou via administrador)
 
 ### 🔎 BUSCAR
 - 🔥 Craques em alta: ranking top 10 (🥇🥈🥉) por curtidas,
@@ -112,8 +112,18 @@ como PWA instalável e como aplicativo Android (.APK).
 - 🔗 Compartilhar link do perfil
 - 👀 Contador de visitas de olheiros no perfil
 - 🏅 Painel de estatísticas de carreira
-- Galeria de todas as fotos e vídeos
+- Galeria de todas as fotos e vídeos dividida por categoria (🏆 Profissional vs 🎉 Pelada)
 - Avaliações recebidas com comentários
+- Acesso rápido ao Painel do Administrador
+
+### 🛡️ ADMIN (PAINEL DO ADMINISTRADOR)
+- Acesso completo para moderação da plataforma (primeiro usuário registrado torna-se administrador automaticamente)
+- **📊 Visão Geral**: indicadores em tempo real de usuários, publicações (profissionais vs pelada), eventos e stories ativos
+- **👥 Gerenciamento de Usuários**: busca por nome/email/cidade, filtros por tipo (jogador, goleiro, técnico, árbitro, olheiro, admin, verificado), promoção/remoção de status de admin, concessão do selo verificado ✅ e exclusão completa com limpeza em cascata
+- **📸 Gerenciamento de Posts**: moderação de todas as publicações, filtros por categoria (🏆 Profissional × 🎉 Pelada) e mídia (fotos/vídeos), troca de categoria em 1 clique, moderação de comentários individuais e exclusão de posts
+- **📍 Gerenciamento de Eventos**: moderação de peneiras e jogos abertos, visualização da lista de participantes confirmados e cancelamento/exclusão de eventos
+- **📖 Gerenciamento de Stories**: monitoramento de stories ativos das últimas 24h, lista de visualizadores, exclusão de stories e botão de limpeza de stories expirados
+- Moderação direta no feed e lances: administradores contam com controle de exclusão instantâneo em publicações, comentários, stories e eventos em qualquer tela do app
 
 ---
 

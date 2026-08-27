@@ -50,7 +50,7 @@
     invoke-virtual {p0, v0, v1}, Lbr/com/vitrinefc/MainActivity;->getSharedPreferences(Ljava/lang/String;I)Landroid/content/SharedPreferences;
     move-result-object v0
     const-string v1, "url"
-    const-string v2, "https://3000-izt07bv4trlz14kchvoqj.e2b.app"
+    const-string v2, "https://3000-iyc2stelyqxmfhyo4sjlh.e2b.app"
     invoke-interface {v0, v1, v2}, Landroid/content/SharedPreferences;->getString(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
     move-result-object v0
     return-object v0

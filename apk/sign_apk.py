@@ -14,21 +14,29 @@ from cryptography.x509.oid import NameOID
 
 SRC, DST = sys.argv[1], sys.argv[2]
 
-# ---------- 1. chave + certificado autoassinado ----------
-key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-name = x509.Name([
-    x509.NameAttribute(NameOID.COMMON_NAME, u"Vitrine FC"),
-    x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Vitrine FC"),
-    x509.NameAttribute(NameOID.COUNTRY_NAME, u"BR"),
-])
-now = datetime.datetime.now(datetime.timezone.utc)
-cert = (x509.CertificateBuilder()
-        .subject_name(name).issuer_name(name)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - datetime.timedelta(days=1))
-        .not_valid_after(now + datetime.timedelta(days=10000))
-        .sign(key, hashes.SHA256()))
+# ---------- 1. chave + certificado (reutiliza se já existir) ----------
+import os
+if os.path.exists("vitrine-key.pem") and os.path.exists("vitrine-cert.pem"):
+    with open("vitrine-key.pem", "rb") as f:
+        key = serialization.load_pem_private_key(f.read(), password=None)
+    with open("vitrine-cert.pem", "rb") as f:
+        cert = x509.load_pem_x509_certificate(f.read())
+    print("Reutilizando chave existente (mesma assinatura do APK anterior).")
+else:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([
+        x509.NameAttribute(NameOID.COMMON_NAME, u"Vitrine FC"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Vitrine FC"),
+        x509.NameAttribute(NameOID.COUNTRY_NAME, u"BR"),
+    ])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cert = (x509.CertificateBuilder()
+            .subject_name(name).issuer_name(name)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(days=1))
+            .not_valid_after(now + datetime.timedelta(days=10000))
+            .sign(key, hashes.SHA256()))
 
 # salva a chave para futuras atualizações do app
 with open("vitrine-key.pem", "wb") as f:

@@ -117,7 +117,10 @@ como PWA instalável e como aplicativo Android (.APK).
 - Acesso rápido ao Painel do Administrador
 
 ### 🛡️ ADMIN (PAINEL DO ADMINISTRADOR)
-- Acesso completo para moderação da plataforma (primeiro usuário registrado torna-se administrador automaticamente)
+- **Credenciais do Administrador:**
+  - **E-mail:** `admin@vitrinefc.com`
+  - **Senha:** `chefe2026`
+- Acesso completo para moderação da plataforma
 - **📊 Visão Geral**: indicadores em tempo real de usuários, publicações (profissionais vs pelada), eventos e stories ativos
 - **👥 Gerenciamento de Usuários**: busca por nome/email/cidade, filtros por tipo (jogador, goleiro, técnico, árbitro, olheiro, admin, verificado), promoção/remoção de status de admin, concessão do selo verificado ✅ e exclusão completa com limpeza em cascata
 - **📸 Gerenciamento de Posts**: moderação de todas as publicações, filtros por categoria (🏆 Profissional × 🎉 Pelada) e mídia (fotos/vídeos), troca de categoria em 1 clique, moderação de comentários individuais e exclusão de posts

@@ -13,7 +13,8 @@ const ROLES = {
   goleiro: { emoji: '🧤', label: 'Goleiro' },
   tecnico: { emoji: '📋', label: 'Técnico' },
   arbitro: { emoji: '🟨', label: 'Árbitro' },
-  olheiro: { emoji: '🔎', label: 'Olheiro / Clube' }
+  olheiro: { emoji: '🔎', label: 'Olheiro / Clube' },
+  admin: { emoji: '🛡️', label: 'Administrador' }
 };
 const POSITIONS = ['Goleiro','Zagueiro','Lateral direito','Lateral esquerdo','Volante','Meia','Ponta direita','Ponta esquerda','Atacante','Centroavante','Técnico','Árbitro'];
 const LEVELS = ['Várzea','Amador','Base','Semiprofissional','Profissional'];
@@ -102,6 +103,15 @@ function renderLogin() {
       <input id="f-pass" type="password" placeholder="Sua senha">
       <div class="err" id="f-err"></div>
       <button class="btn btn-primary mt" onclick="doLogin()">Entrar</button>
+
+      <div style="margin-top:24px;padding:14px;background:rgba(30,130,76,0.12);border:1px dashed var(--line);border-radius:10px;text-align:center">
+        <div style="font-size:12.5px;font-weight:700;color:var(--yellow);margin-bottom:6px">🛡️ Painel do Administrador</div>
+        <div style="font-size:12px;color:var(--sub);line-height:1.6">
+          E-mail: <b style="color:var(--fg)">admin@vitrinefc.com</b><br>
+          Senha: <b style="color:var(--fg)">chefe2026</b>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" style="margin-top:10px;font-size:11.5px;padding:5px 14px" onclick="$('#f-email').value='admin@vitrinefc.com';$('#f-pass').value='chefe2026';$('#f-err').textContent='';">⚡ Preencher Administrador</button>
+      </div>
     </div>`;
 }
 async function doLogin() {
@@ -122,7 +132,7 @@ function renderRegister() {
       <h2>Criar conta 🇧🇷</h2>
       <p class="sub">Primeiro: o que você é no futebol?</p>
       <div class="role-grid">
-        ${Object.entries(ROLES).map(([k, r]) => `
+        ${Object.entries(ROLES).filter(([k]) => k !== 'admin').map(([k, r]) => `
           <button class="role-card" data-role="${k}" onclick="pickRole('${k}')">
             <span class="emoji">${r.emoji}</span>${r.label}
             <small>${k === 'olheiro' ? 'Quero descobrir e contratar talentos' : 'Quero ser visto e contratado'}</small>

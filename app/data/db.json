@@ -26,6 +26,42 @@
       "verified": true,
       "isAdmin": true,
       "createdAt": 1756339200000
+    },
+    {
+      "id": "89657d711a7dc52d",
+      "name": "Jonhy Kelvis Maciel Saar",
+      "email": "jonhyk85@gmail.com",
+      "password": "be158e7dcd253a6016d03b3fa6be7f877b5d609cb4eb308f15b5100d05728869",
+      "role": "jogador",
+      "nickname": "",
+      "position": "Goleiro",
+      "positions2": "",
+      "level": "",
+      "city": "1",
+      "state": "1",
+      "age": 22,
+      "height": 178,
+      "weight": 72,
+      "foot": "Ambidestro",
+      "teams": "Modulo 04 FC (Juina - FC), Comunidade São Luiz FC (Juína - FC)",
+      "strengths": "Força no chute, Precisão.",
+      "bio": "1",
+      "availableHire": true,
+      "availableFreela": true,
+      "fee": "",
+      "photo": "",
+      "verified": false,
+      "isAdmin": false,
+      "createdAt": 1787874105550,
+      "stats": {
+        "jogos": 1,
+        "gols": 1,
+        "assistencias": 1,
+        "defesas": 1,
+        "penaltisDefendidos": 1,
+        "jogosSemSofrerGol": 1,
+        "titulos": 1
+      }
     }
   ],
   "posts": [],
@@ -38,5 +74,10 @@
   "follows": [],
   "stories": [],
   "events": [],
-  "tokens": {}
+  "tokens": {
+    "92e5a6c3b83f7c72e35bc2dfc5a4ebdb": "admin_vitrine",
+    "b794b9e570874007de182bba93807013": "admin_vitrine",
+    "2f2fd3e6a6a43da02df728fe659563a6": "89657d711a7dc52d",
+    "d89b04f76aa9a799238299b201338f1e": "admin_vitrine"
+  }
 }

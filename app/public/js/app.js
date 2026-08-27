@@ -105,13 +105,13 @@ function renderLogin() {
       <div class="err" id="f-err"></div>
       <button class="btn btn-primary mt" onclick="doLogin()">Entrar</button>
 
-      <div style="margin-top:24px;padding:14px;background:rgba(30,130,76,0.12);border:1px dashed var(--line);border-radius:10px;text-align:center">
-        <div style="font-size:12.5px;font-weight:700;color:var(--yellow);margin-bottom:6px">🛡️ Painel do Administrador</div>
-        <div style="font-size:12px;color:var(--sub);line-height:1.6">
-          E-mail: <b style="color:var(--fg)">admin@vitrinefc.com</b><br>
-          Senha: <b style="color:var(--fg)">chefe2026</b>
+      <div style="margin-top:24px;padding:16px;background:linear-gradient(135deg, rgba(245,158,11,0.08), rgba(13,29,20,0.85));border:1px dashed rgba(245,158,11,0.35);border-radius:16px;text-align:center">
+        <div style="font-size:13px;font-weight:800;color:var(--yellow);margin-bottom:6px">🛡️ Acesso do Administrador Oficial</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.6">
+          E-mail: <b style="color:#fff">admin@vitrinefc.com</b><br>
+          Senha: <b style="color:#fff">chefe2026</b>
         </div>
-        <button type="button" class="btn btn-outline btn-sm" style="margin-top:10px;font-size:11.5px;padding:5px 14px" onclick="$('#f-email').value='admin@vitrinefc.com';$('#f-pass').value='chefe2026';$('#f-err').textContent='';">⚡ Preencher Administrador</button>
+        <button type="button" class="btn btn-outline btn-sm" style="margin-top:10px;font-size:12px;padding:7px 16px" onclick="$('#f-email').value='admin@vitrinefc.com';$('#f-pass').value='chefe2026';$('#f-err').textContent='';">⚡ Preencher Administrador</button>
       </div>
     </div>`;
 }
@@ -179,11 +179,11 @@ async function enterApp() {
 }
 
 function renderShell() {
-  const isAdmin = ME && (ME.isAdmin || ME.role === 'admin');
+  const isAdmin = ME && (ME.isAdmin === true || ME.role === 'admin');
   app.innerHTML = `
     <div class="topbar">
       <div class="brand"><img src="/img/logo.png" alt="">Vitrine FC</div>
-      <div style="display:flex;align-items:center;gap:6px">
+      <div style="display:flex;align-items:center;gap:8px">
         ${isAdmin ? `<button class="topbar-admin-pill" onclick="showTab('admin')" title="Painel do Administrador">🛡️ Admin</button>` : ''}
         <button class="bell" onclick="showTab('notifs')">🔔<span class="badge" id="b-notif" style="display:none"></span></button>
       </div>
@@ -196,7 +196,7 @@ function renderShell() {
       <button id="nav-search" onclick="showTab('search')"><span class="ico">🔎</span>Buscar</button>
       <button id="nav-chat" onclick="showTab('chat')"><span class="ico">💬</span>Chat<span class="badge" id="b-chat" style="display:none"></span></button>
       <button id="nav-profile" onclick="showTab('profile')"><span class="ico">👤</span>Perfil</button>
-      <button id="nav-admin" onclick="showTab('admin')"><span class="ico">🛡️</span>Admin</button>
+      ${isAdmin ? `<button id="nav-admin" onclick="showTab('admin')"><span class="ico">🛡️</span>Admin</button>` : ''}
     </div>`;
 }
 
@@ -215,6 +215,12 @@ function setBadge(id, n) {
 }
 
 function showTab(tab) {
+  const isAdmin = ME && (ME.isAdmin === true || ME.role === 'admin');
+  if (tab === 'admin' && !isAdmin) {
+    toast('Acesso restrito: apenas administradores autorizados têm permissão para acessar esta área. 🔒');
+    showTab('feed');
+    return;
+  }
   currentTab = tab;
   clearInterval(chatPoll);
   clearInterval(feedPoll);
@@ -1012,9 +1018,10 @@ async function renderProfile(userId) {
         <button class="btn btn-outline btn-sm" onclick="openSecurityModal()">🔐 E-mail e Senha</button>
         <button class="btn btn-primary btn-sm" onclick="shareProfile('${u.id}')">🔗 Compartilhar</button>
       </div>
-      <button class="btn ${ME.isAdmin ? 'btn-primary' : 'btn-outline'} btn-sm mt" style="width:100%" onclick="${ME.isAdmin ? "showTab('admin')" : "claimAdminAccess()"}">
-        ${ME.isAdmin ? '🛡️ Acessar Painel do Administrador' : '🛡️ Ativar Modo Administrador'}
-      </button>
+      ${ME.isAdmin ? `
+        <button class="btn btn-primary btn-sm mt" style="width:100%" onclick="showTab('admin')">
+          🛡️ Acessar Painel do Administrador
+        </button>` : ''}
       <button class="btn btn-danger btn-sm mt" style="width:100%" onclick="logout()">Sair da conta</button>` : `
       <div class="row2">
         <button class="btn btn-primary btn-sm" onclick="openProposal('${u.id}', '${esc(u.name)}')">🤝 Contratar / Chamar p/ jogo</button>
@@ -1051,7 +1058,30 @@ async function renderProfile(userId) {
         <div class="gal-group"><h5>🏆 Lances em jogos profissionais (${postsProf.length})</h5>${postsProf.length ? mediaGridHtml(postsProf) : '<p class="sub">Nenhum lance profissional ainda.</p>'}</div>
         <div class="gal-group"><h5>🎉 Lances de pelada/várzea (${postsPelada.length})</h5>${postsPelada.length ? mediaGridHtml(postsPelada) : '<p class="sub">Nenhum lance de pelada/várzea ainda.</p>'}</div>`}
     </div>
-    ${ME.isAdmin && !mine ? `<div class="section admin-moderation-card"><h4>🛡️ Moderação do Administrador</h4><p class="sub">Excluir este perfil remove posts, stories, comentários, votos e mensagens vinculadas.</p><button class="btn btn-danger" onclick="adminDeleteUserFromProfile('${u.id}', '${esc(u.name)}')">🗑️ Excluir Usuário</button></div>` : ''}
+    ${ME.isAdmin && !mine ? `
+      <div class="section admin-moderation-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <h4 style="margin:0;color:var(--yellow)">🛡️ Gestão de Administrador</h4>
+          <span class="badge-role">${u.isAdmin ? '🛡️ Administrador' : '👤 Usuário Regular'}</span>
+        </div>
+        <p class="sub" style="margin-bottom:12px;font-size:12px">Gerencie permissões e moderação deste perfil:</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          ${(u.id === 'admin_vitrine' || (u.email && u.email.toLowerCase() === 'admin@vitrinefc.com')) ? `
+            <button class="btn btn-outline btn-sm" disabled style="opacity:.6">👑 Admin Master (Fixo)</button>
+          ` : `
+            <button class="btn ${u.isAdmin ? 'btn-outline' : 'btn-primary'} btn-sm" onclick="adminToggleUserAdminFromProfile('${u.id}', ${!u.isAdmin})">
+              ${u.isAdmin ? 'Remover Admin' : '👑 Tornar Admin'}
+            </button>
+          `}
+          <button class="btn btn-green btn-sm" onclick="adminToggleUserVerifiedFromProfile('${u.id}', ${!u.verified})">
+            ${u.verified ? 'Remover Selo' : '✅ Verificar Conta'}
+          </button>
+        </div>
+        ${(u.id !== 'admin_vitrine' && (u.email && u.email.toLowerCase() !== 'admin@vitrinefc.com')) ? `
+          <button class="btn btn-danger btn-sm" style="width:100%" onclick="adminDeleteUserFromProfile('${u.id}', '${esc(u.name)}')">
+            🗑️ Excluir Usuário e Dados
+          </button>` : ''}
+      </div>` : ''}
 
     ${ratings.length ? `<div class="section"><h4>⭐ Avaliações</h4>${ratings.map(r => `
       <p style="margin-bottom:8px"><b>${esc(r.from?.name || '')}</b> — <span class="stars">${'★'.repeat(r.stars)}</span><br><span style="color:var(--muted)">${esc(r.comment)}</span></p>`).join('')}</div>` : ''}`;
@@ -1283,6 +1313,27 @@ function openSecurityModal() {
 async function adminDeleteUserFromProfile(id, name) {
   if (!confirm(`Excluir o usuário ${name} e todos os dados vinculados? Esta ação não pode ser desfeita.`)) return;
   try { await api('/admin/users/' + id, { method:'DELETE' }); toast('Usuário excluído e dados removidos.'); showTab('admin'); switchAdminSubTab('users'); } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function adminToggleUserAdminFromProfile(userId, makeAdmin) {
+  if (!makeAdmin) {
+    if (!confirm('Confirma remover os privilégios de Administrador deste usuário?')) return;
+  } else {
+    if (!confirm('Confirma conceder privilégios de ADMINISTRADOR para este usuário? Ele terá acesso irrestrito ao painel e à moderação.')) return;
+  }
+  try {
+    await api('/admin/users/' + userId, { method: 'PUT', body: { isAdmin: makeAdmin } });
+    toast(makeAdmin ? 'Usuário promovido a Administrador! 👑' : 'Acesso de administrador removido.');
+    renderProfile(userId);
+  } catch (e) { toast('Erro: ' + e.message); }
+}
+
+async function adminToggleUserVerifiedFromProfile(userId, verify) {
+  try {
+    await api('/admin/users/' + userId, { method: 'PUT', body: { verified: verify } });
+    toast(verify ? 'Selo de verificado concedido! ✅' : 'Selo de verificado removido.');
+    renderProfile(userId);
+  } catch (e) { toast('Erro: ' + e.message); }
 }
 
 // ---------- Editar perfil ----------
@@ -1575,32 +1626,21 @@ let _adminEventSearch = '';
 let _adminStories = [];
 let _adminStoryType = 'all';
 
-async function claimAdminAccess() {
-  try {
-    const res = await api('/admin/claim', { method: 'POST' });
-    ME = res.user;
-    toast('Modo administrador ativado com sucesso! 🛡️');
-    renderShell();
-    showTab('admin');
-  } catch (e) {
-    toast('Erro: ' + e.message);
-  }
-}
-
 async function renderAdmin() {
   const c = $('#content');
-  if (!ME.isAdmin && ME.role !== 'admin') {
+  const isAdmin = ME && (ME.isAdmin === true || ME.role === 'admin');
+  if (!isAdmin) {
     c.innerHTML = `
       <div class="admin-locked">
-        <span class="admin-locked-icon">🛡️</span>
-        <h2>Painel do Administrador</h2>
-        <p class="sub">Acesso restrito para administradores do Vitrine FC.</p>
-        <div class="card" style="margin-top:20px;text-align:left">
-          <p style="font-size:13.5px;color:var(--muted);line-height:1.5">
-            Você está conectado como <b>${esc(ME.name)}</b> (${esc(ME.email)}).<br><br>
-            Ative o modo administrador nesta conta para gerenciar usuários, posts, eventos e stories.
+        <span class="admin-locked-icon">🔒</span>
+        <h2>Acesso Restrito</h2>
+        <p class="sub">Esta área é exclusiva e restrita à administração oficial do Vitrine FC.</p>
+        <div class="card" style="margin-top:20px;text-align:center">
+          <p style="font-size:13.5px;color:var(--muted);line-height:1.6">
+            Você está conectado como <b>${esc(ME.name)}</b> (${esc(ME.email)}).<br>
+            Sua conta não possui credenciais administrativas.<br>Somente administradores autorizados têm acesso a esta área e à concessão de privilégios.
           </p>
-          <button class="btn btn-primary mt" onclick="claimAdminAccess()">🔑 Ativar Acesso de Administrador</button>
+          <button class="btn btn-primary mt" onclick="showTab('feed')">← Voltar ao Feed</button>
         </div>
       </div>`;
     return;
@@ -1608,9 +1648,13 @@ async function renderAdmin() {
 
   c.innerHTML = `
     <div class="admin-header">
+      <div class="admin-top-status">
+        <span class="admin-live-dot"></span>
+        <span>Central de Controle & Moderação Oficial</span>
+      </div>
       <h2>🛡️ Painel do Administrador</h2>
-      <p class="sub">Gerenciamento completo da rede Vitrine FC</p>
-      <button class="btn btn-outline btn-sm" onclick="openSecurityModal()">🔑 Alterar Minha Senha / E-mail</button>
+      <p class="sub">Gerenciamento completo de usuários, publicações, jogos e moderação</p>
+      <button class="btn btn-outline btn-sm" onclick="openSecurityModal()">🔑 Minhas Credenciais (E-mail / Senha)</button>
     </div>
     <div class="admin-subnav">
       <button class="admin-subnav-btn ${adminSubTab === 'overview' ? 'active' : ''}" onclick="switchAdminSubTab('overview')">📊 Visão Geral</button>
@@ -1620,7 +1664,7 @@ async function renderAdmin() {
       <button class="admin-subnav-btn ${adminSubTab === 'stories' ? 'active' : ''}" onclick="switchAdminSubTab('stories')">📖 Stories</button>
     </div>
     <div id="admin-view">
-      <p class="empty">Carregando painel… ⏳</p>
+      <p class="empty">Carregando painel administrativo… ⏳</p>
     </div>`;
 
   await loadAdminSubView();
@@ -1774,8 +1818,10 @@ function drawAdminUsersList() {
     <div class="admin-count-bar">
       <span>Mostrando <b>${list.length}</b> de ${_adminUsers.length} usuários</span>
     </div>
-    ${list.map(u => `
-      <div class="admin-card" id="auc-${u.id}">
+    ${list.map(u => {
+      const isMaster = (u.id === 'admin_vitrine' || (u.email && u.email.toLowerCase() === 'admin@vitrinefc.com'));
+      return `
+      <div class="admin-card" id="auc-${u.id}" style="${isMaster ? 'border-color: rgba(245,158,11,0.55); box-shadow: 0 0 24px rgba(245,158,11,0.14);' : ''}">
         <div class="admin-card-head">
           ${avatarHtml(u)}
           <div class="who">
@@ -1783,7 +1829,7 @@ function drawAdminUsersList() {
             <span>${esc(u.email)}</span>
             <div class="admin-badge-row">
               <span class="badge-role">${ROLES[u.role]?.emoji || '⚽'} ${ROLES[u.role]?.label || u.role}</span>
-              ${u.isAdmin ? '<span class="badge-admin">🛡️ Admin</span>' : ''}
+              ${isMaster ? '<span class="badge-admin">👑 Admin Master</span>' : (u.isAdmin ? '<span class="badge-admin">🛡️ Admin</span>' : '')}
               ${u.verified ? '<span class="badge-verified">✅ Verificado</span>' : ''}
               ${u.position ? `<span class="badge-role">${esc(u.position)}</span>` : ''}
             </div>
@@ -1795,20 +1841,33 @@ function drawAdminUsersList() {
         </div>
         <div class="admin-actions">
           <button class="btn btn-outline" onclick="renderProfile('${u.id}')">👁️ Perfil</button>
-          <button class="btn btn-primary" onclick="adminToggleUserAdmin('${u.id}', ${!u.isAdmin})">${u.isAdmin ? 'Remover Admin' : '👑 Tornar Admin'}</button>
+          ${isMaster ? `
+            <span class="badge-admin" style="display:flex;align-items:center;justify-content:center;font-size:11.5px;padding:6px 10px;background:rgba(245,158,11,0.25);border:1px solid var(--yellow);color:var(--yellow);font-weight:700">👑 Admin Principal (Fixo)</span>
+          ` : `
+            <button class="btn ${u.isAdmin ? 'btn-outline' : 'btn-primary'}" onclick="adminToggleUserAdmin('${u.id}', ${!u.isAdmin})">
+              ${u.isAdmin ? 'Remover Admin' : '👑 Tornar Admin'}
+            </button>
+          `}
           <button class="btn btn-green" onclick="adminToggleUserVerified('${u.id}', ${!u.verified})">${u.verified ? 'Remover Selo' : '✅ Verificar'}</button>
-          ${u.id !== ME.id ? `<button class="btn btn-danger" onclick="adminDeleteUser('${u.id}', '${esc(u.name)}')">🗑️ Excluir</button>` : ''}
+          ${(u.id !== ME.id && !isMaster) ? `<button class="btn btn-danger" onclick="adminDeleteUser('${u.id}', '${esc(u.name)}')">🗑️ Excluir</button>` : ''}
         </div>
-      </div>`).join('')}`;
+      </div>`;
+    }).join('')}`;
 }
 
 async function adminToggleUserAdmin(userId, makeAdmin) {
+  const u = _adminUsers.find(x => x.id === userId);
+  const name = u ? u.name : 'o usuário';
+  if (!makeAdmin) {
+    if (!confirm(`Confirma remover os privilégios de Administrador de "${name}"?`)) return;
+  } else {
+    if (!confirm(`Confirma conceder privilégios de ADMINISTRADOR para "${name}"? Esta pessoa terá acesso irrestrito ao painel e à moderação.`)) return;
+  }
   try {
     const updated = await api('/admin/users/' + userId, { method: 'PUT', body: { isAdmin: makeAdmin } });
-    const u = _adminUsers.find(x => x.id === userId);
     if (u) u.isAdmin = updated.isAdmin;
     if (userId === ME.id) ME.isAdmin = updated.isAdmin;
-    toast(makeAdmin ? 'Usuário promovido a Administrador! 👑' : 'Acesso de administrador removido.');
+    toast(makeAdmin ? `👑 "${name}" agora é Administrador!` : `Privilégios de administrador de "${name}" removidos.`);
     drawAdminUsersList();
   } catch (e) { toast('Erro: ' + e.message); }
 }

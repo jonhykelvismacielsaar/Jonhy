@@ -304,11 +304,7 @@ function publicUser(u) {
 
 function adminAuth(req, res, next) {
   auth(req, res, () => {
-    if (db.users.length === 1 && req.user && !req.user.isAdmin) {
-      req.user.isAdmin = true;
-      saveDB();
-    }
-    if (req.user && (req.user.isAdmin || req.user.role === 'admin')) {
+    if (req.user && (req.user.isAdmin === true || req.user.role === 'admin')) {
       return next();
     }
     return res.status(403).json({ error: 'Acesso negado: privilégios de administrador necessários.' });
@@ -395,16 +391,43 @@ function computeAchievements(u) {
 app.post('/api/register', (req, res) => {
   const { name, email, password, role } = req.body;
   if (!name || !email || !password || !role) return res.status(400).json({ error: 'Preencha todos os campos.' });
-  if (db.users.find(u => u.email.toLowerCase() === email.toLowerCase()))
+  const cleanEmail = String(email).trim().toLowerCase();
+  if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) return res.status(400).json({ error: 'Informe um e-mail válido.' });
+  if (db.users.find(u => (u.email || '').toLowerCase() === cleanEmail))
     return res.status(400).json({ error: 'Este e-mail já está cadastrado.' });
-  const isFirstUser = db.users.length === 0;
-  const isAdmin = isFirstUser || /admin/i.test(email) || role === 'admin';
+
+  // Papéis públicos permitidos (admin não pode ser selecionado nem atribuído no cadastro)
+  const allowedRoles = ['jogador', 'goleiro', 'tecnico', 'arbitro', 'olheiro'];
+  const safeRole = allowedRoles.includes(role) ? role : 'jogador';
+
+  // Privilégio de administrador é SEMPRE falso no cadastro público.
+  // Somente um administrador logado pode promover contas pelo painel de controle.
   const user = {
-    id: uid(), name, email, password: hash(password), role,
-    nickname: '', position: role === 'goleiro' ? 'Goleiro' : (role === 'tecnico' ? 'Técnico' : (role === 'arbitro' ? 'Árbitro' : '')),
-    positions2: '', level: '', city: '', state: '', age: null, height: null, weight: null,
-    foot: '', teams: '', strengths: '', bio: '', availableHire: true, availableFreela: false,
-    fee: '', photo: '', verified: false, isAdmin: !!isAdmin, createdAt: Date.now()
+    id: uid(),
+    name: String(name).trim(),
+    email: cleanEmail,
+    password: hash(password),
+    role: safeRole,
+    nickname: '',
+    position: safeRole === 'goleiro' ? 'Goleiro' : (safeRole === 'tecnico' ? 'Técnico' : (safeRole === 'arbitro' ? 'Árbitro' : '')),
+    positions2: '',
+    level: '',
+    city: '',
+    state: '',
+    age: null,
+    height: null,
+    weight: null,
+    foot: '',
+    teams: '',
+    strengths: '',
+    bio: '',
+    availableHire: true,
+    availableFreela: false,
+    fee: '',
+    photo: '',
+    verified: false,
+    isAdmin: false,
+    createdAt: Date.now()
   };
   db.users.push(user);
   const token = uid() + uid();
@@ -869,11 +892,9 @@ app.get('/api/newusers', auth, (req, res) => {
 // PAINEL DO ADMINISTRADOR 🛡️
 // ============================================================
 
-// Ativar modo administrador na conta atual (se único usuário ou solicitado)
-app.post('/api/admin/claim', auth, (req, res) => {
-  req.user.isAdmin = true;
-  saveDB();
-  res.json({ ok: true, user: publicUser(req.user) });
+// Rota desativada por segurança: novos administradores só podem ser atribuídos por um administrador ativo no painel
+app.post('/api/admin/claim', (req, res) => {
+  res.status(403).json({ error: 'Acesso negado: apenas um administrador já ativo pode conceder privilégios de administração através do painel de controle.' });
 });
 
 // Estatísticas gerais para o painel admin
@@ -945,7 +966,8 @@ app.get('/api/admin/users', adminAuth, (req, res) => {
 app.put('/api/admin/users/:id', adminAuth, (req, res) => {
   const target = db.users.find(u => u.id === req.params.id);
   if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
-  if (target.email && target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() && req.body.isAdmin === false) {
+  const isMaster = target.id === 'admin_vitrine' || (target.email && target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase());
+  if (isMaster && req.body.isAdmin === false) {
     return res.status(400).json({ error: 'Não é permitido remover o privilégio da conta principal de administrador.' });
   }
   if (req.body.isAdmin !== undefined) target.isAdmin = !!req.body.isAdmin;
@@ -959,7 +981,8 @@ app.delete('/api/admin/users/:id', adminAuth, (req, res) => {
   const uidToDelete = req.params.id;
   const target = db.users.find(u => u.id === uidToDelete);
   if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
-  if (uidToDelete === req.user.id || (target.email && target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase())) {
+  const isMaster = target.id === 'admin_vitrine' || (target.email && target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase());
+  if (uidToDelete === req.user.id || isMaster) {
     return res.status(400).json({ error: 'Você não pode excluir a conta principal de administrador.' });
   }
   const idx = db.users.findIndex(u => u.id === uidToDelete);

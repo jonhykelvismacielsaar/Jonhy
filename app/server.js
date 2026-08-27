@@ -89,7 +89,8 @@ const DEFAULT_ADMIN_PASS = 'chefe2026';
 
 function ensureAdminUser() {
   const adminEmail = DEFAULT_ADMIN_EMAIL.toLowerCase();
-  let admin = db.users.find(u => (u.email || '').toLowerCase() === adminEmail);
+  // Use the stable id first so changing the admin e-mail never creates a duplicate.
+  let admin = db.users.find(u => u.id === 'admin_vitrine') || db.users.find(u => (u.email || '').toLowerCase() === adminEmail);
   const passwordHash = hash(DEFAULT_ADMIN_PASS);
 
   if (!admin) {
@@ -124,11 +125,9 @@ function ensureAdminUser() {
     saveDB();
     console.log(`🛡️ Administrador oficial configurado: ${DEFAULT_ADMIN_EMAIL}`);
   } else {
+    // A senha/e-mail definidos pelo administrador são credenciais persistentes.
+    // Nunca reponha a senha padrão durante um restart (isso invalidaria a troca).
     let changed = false;
-    if (admin.password !== passwordHash) {
-      admin.password = passwordHash;
-      changed = true;
-    }
     if (!admin.isAdmin) {
       admin.isAdmin = true;
       changed = true;
@@ -427,6 +426,34 @@ app.post('/api/login', (req, res) => {
 
 // ---- Meu perfil ----
 app.get('/api/me', auth, (req, res) => res.json(publicUser(req.user)));
+
+// ---- E-mail e senha (exige a senha atual) ----
+app.put('/api/me/security', auth, (req, res) => {
+  const current = req.body.currentPassword || '';
+  if (!current || req.user.password !== hash(current)) {
+    return res.status(400).json({ error: 'A senha atual está incorreta.' });
+  }
+  const email = req.body.email === undefined ? req.user.email : String(req.body.email).trim().toLowerCase();
+  const password = req.body.password === undefined ? null : String(req.body.password);
+  if (!email || !/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: 'Informe um e-mail válido.' });
+  const other = db.users.find(u => u.id !== req.user.id && (u.email || '').toLowerCase() === email);
+  if (other) return res.status(400).json({ error: 'Este e-mail já está cadastrado.' });
+  if (password !== null && password.length < 6) return res.status(400).json({ error: 'A nova senha deve ter pelo menos 6 caracteres.' });
+  req.user.email = email;
+  if (password !== null && password.length) req.user.password = hash(password);
+  saveDB();
+  res.json(publicUser(req.user));
+});
+
+app.put('/api/posts/:id', auth, (req, res) => {
+  const post = db.posts.find(p => p.id === req.params.id);
+  if (!post) return res.status(404).json({ error: 'Post não encontrado.' });
+  if (post.userId !== req.user.id && !req.user.isAdmin && req.user.role !== 'admin') return res.status(403).json({ error: 'Você só pode editar seus próprios posts.' });
+  if (req.body.caption !== undefined) post.caption = String(req.body.caption).trim();
+  if (req.body.category !== undefined) post.category = req.body.category === 'profissional' ? 'profissional' : 'pelada';
+  saveDB();
+  res.json(decoratePost(post, req.user.id));
+});
 
 app.put('/api/me', auth, (req, res) => {
   const allowed = ['name', 'nickname', 'position', 'positions2', 'level', 'city', 'state', 'age',

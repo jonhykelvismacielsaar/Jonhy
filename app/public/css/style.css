@@ -163,6 +163,9 @@ label { font-size: 13px; color: var(--muted); display: block; margin: 12px 0 5px
 .section { background: var(--card); border-radius: var(--radius); padding: 15px; margin-bottom: 13px; }
 .section h4 { color: var(--yellow); font-size: 14px; margin-bottom: 8px; }
 .section p { font-size: 14px; line-height: 1.5; color: var(--text); }
+.profile-view-toggle { display:flex; gap:8px; margin: 4px 0 14px; border-bottom:1px solid #1c5c3c; padding-bottom:10px; }
+.profile-view-toggle .btn { flex:1; }
+.admin-moderation-card { border: 1px solid rgba(255,92,92,.55); background: rgba(255,92,92,.08); }
 .media-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
 .media-grid .cell { position: relative; aspect-ratio: 1; border-radius: 9px; overflow: hidden; background: #000; border: none; padding: 0; }
 .gal-group { margin-top: 10px; }

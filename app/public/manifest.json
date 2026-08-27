@@ -1,0 +1,12 @@
+{
+  "name": "Vitrine FC",
+  "short_name": "Vitrine FC",
+  "description": "A rede social que conecta jogadores de futebol a olheiros e clubes",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07331e",
+  "theme_color": "#0a5c36",
+  "icons": [
+    { "src": "/img/logo.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "vitrine-fc",
+  "version": "1.0.0",
+  "description": "Vitrine FC - A rede social que conecta jogadores de futebol a olheiros e clubes",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1"
+  }
+}

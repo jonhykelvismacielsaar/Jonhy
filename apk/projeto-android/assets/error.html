@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vitrine FC — Sem conexão</title>
+<style>
+  body { font-family: sans-serif; background: #06281a; color: #f2f7f4; margin: 0;
+         min-height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center; }
+  .box { padding: 30px 24px; max-width: 340px; }
+  .ball { font-size: 60px; }
+  h1 { color: #ffd700; font-size: 22px; margin: 12px 0 6px; }
+  p { color: #9fc3b0; font-size: 14px; line-height: 1.5; }
+  button { width: 100%; padding: 14px; border: none; border-radius: 12px; font-size: 15px;
+           font-weight: bold; margin-top: 12px; cursor: pointer; }
+  .b1 { background: #ffd700; color: #143d0c; }
+  .b2 { background: transparent; border: 2px solid #ffd700; color: #ffd700; }
+  input { width: 100%; box-sizing: border-box; padding: 12px; border-radius: 10px; margin-top: 18px;
+          border: 1.5px solid #1c5c3c; background: #0a3521; color: #fff; font-size: 13px; }
+  .small { font-size: 11.5px; margin-top: 20px; }
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="ball">⚽</div>
+  <h1>Sem conexão com o Vitrine FC</h1>
+  <p>Verifique sua internet ou se o servidor está no ar e tente novamente.</p>
+  <button class="b1" onclick="location.href = VitrineApp.getUrl()">🔄 Tentar novamente</button>
+  <input id="srv" placeholder="Novo endereço do servidor (https://...)">
+  <button class="b2" onclick="trocar()">💾 Salvar novo endereço</button>
+  <p class="small">Dica: quando o Vitrine FC for para a nuvem definitiva, cole aqui o novo endereço — sem precisar reinstalar o app.</p>
+</div>
+<script>
+  try { document.getElementById('srv').value = VitrineApp.getUrl(); } catch (e) {}
+  function trocar() {
+    var v = document.getElementById('srv').value.trim();
+    if (!v) return;
+    if (v.indexOf('http') !== 0) v = 'https://' + v;
+    VitrineApp.setServer(v);
+    location.href = v;
+  }
+</script>
+</body>
+</html>

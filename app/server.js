@@ -82,8 +82,75 @@ function purgeDemoData() {
     console.log('🧹 Dados de demonstração removidos.');
   }
 }
+
+// ---------- Credenciais padrão do Administrador ----------
+const DEFAULT_ADMIN_EMAIL = 'admin@vitrinefc.com';
+const DEFAULT_ADMIN_PASS = 'chefe2026';
+
+function ensureAdminUser() {
+  const adminEmail = DEFAULT_ADMIN_EMAIL.toLowerCase();
+  let admin = db.users.find(u => (u.email || '').toLowerCase() === adminEmail);
+  const passwordHash = hash(DEFAULT_ADMIN_PASS);
+
+  if (!admin) {
+    admin = {
+      id: 'admin_vitrine',
+      name: 'Administrador Vitrine FC',
+      email: DEFAULT_ADMIN_EMAIL,
+      password: passwordHash,
+      role: 'admin',
+      nickname: 'Admin Vitrine',
+      position: 'Administrador',
+      positions2: '',
+      level: 'Oficial',
+      city: 'Brasil',
+      state: 'BR',
+      age: null,
+      height: null,
+      weight: null,
+      foot: '',
+      teams: 'Vitrine FC',
+      strengths: 'Gestão e Moderação da Plataforma',
+      bio: 'Conta oficial de administração do Vitrine FC.',
+      availableHire: false,
+      availableFreela: false,
+      fee: '',
+      photo: '',
+      verified: true,
+      isAdmin: true,
+      createdAt: Date.now()
+    };
+    db.users.unshift(admin);
+    saveDB();
+    console.log(`🛡️ Administrador oficial configurado: ${DEFAULT_ADMIN_EMAIL}`);
+  } else {
+    let changed = false;
+    if (admin.password !== passwordHash) {
+      admin.password = passwordHash;
+      changed = true;
+    }
+    if (!admin.isAdmin) {
+      admin.isAdmin = true;
+      changed = true;
+    }
+    if (admin.role !== 'admin') {
+      admin.role = 'admin';
+      changed = true;
+    }
+    if (!admin.verified) {
+      admin.verified = true;
+      changed = true;
+    }
+    if (changed) {
+      saveDB();
+      console.log(`🛡️ Administrador oficial sincronizado: ${DEFAULT_ADMIN_EMAIL}`);
+    }
+  }
+}
+
 loadDB();
 purgeDemoData();
+ensureAdminUser();
 
 // ============================================================
 // BACKUP AUTOMÁTICO NO GITHUB (grátis e permanente)
@@ -125,6 +192,7 @@ async function ghLoadDB() {
       db.tokens = db.tokens || {};
       ['comments', 'postRatings', 'follows', 'stories', 'events'].forEach(k => { db[k] = db[k] || []; });
       purgeDemoData();
+      ensureAdminUser();
       fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
       console.log('☁️  Banco restaurado do GitHub:', GH_REPO);
     } else {
@@ -850,6 +918,9 @@ app.get('/api/admin/users', adminAuth, (req, res) => {
 app.put('/api/admin/users/:id', adminAuth, (req, res) => {
   const target = db.users.find(u => u.id === req.params.id);
   if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
+  if (target.email && target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() && req.body.isAdmin === false) {
+    return res.status(400).json({ error: 'Não é permitido remover o privilégio da conta principal de administrador.' });
+  }
   if (req.body.isAdmin !== undefined) target.isAdmin = !!req.body.isAdmin;
   if (req.body.verified !== undefined) target.verified = !!req.body.verified;
   if (req.body.role !== undefined) target.role = req.body.role;
@@ -859,11 +930,12 @@ app.put('/api/admin/users/:id', adminAuth, (req, res) => {
 
 app.delete('/api/admin/users/:id', adminAuth, (req, res) => {
   const uidToDelete = req.params.id;
-  if (uidToDelete === req.user.id) {
-    return res.status(400).json({ error: 'Você não pode excluir sua própria conta de administrador.' });
+  const target = db.users.find(u => u.id === uidToDelete);
+  if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
+  if (uidToDelete === req.user.id || (target.email && target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase())) {
+    return res.status(400).json({ error: 'Você não pode excluir a conta principal de administrador.' });
   }
   const idx = db.users.findIndex(u => u.id === uidToDelete);
-  if (idx < 0) return res.status(404).json({ error: 'Usuário não encontrado.' });
 
   const userPosts = db.posts.filter(p => p.userId === uidToDelete);
   const userPostIds = new Set(userPosts.map(p => p.id));

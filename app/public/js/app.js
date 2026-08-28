@@ -108,6 +108,62 @@ const POS_ABBR = {
   'Administrador': 'ADM'
 };
 
+const FIFA_ATTRS = [
+  { key: 'ritmo', label: 'PAC', name: 'Ritmo', icon: '⚡' },
+  { key: 'finalizacao', label: 'SHO', name: 'Finalização', icon: '🎯' },
+  { key: 'passe', label: 'PAS', name: 'Passe', icon: '🎽' },
+  { key: 'drible', label: 'DRI', name: 'Drible', icon: '🌀' },
+  { key: 'defesa', label: 'DEF', name: 'Defesa', icon: '🛡️' },
+  { key: 'fisico', label: 'PHY', name: 'Físico', icon: '💪' }
+];
+
+const FIFA_ATTRS_GK = [
+  { key: 'mergulho', label: 'DIV', name: 'Mergulho', icon: '🦘' },
+  { key: 'manejo', label: 'HAN', name: 'Manejo', icon: '🧤' },
+  { key: 'chute', label: 'KIC', name: 'Chute/Reposição', icon: '🥅' },
+  { key: 'reflexos', label: 'REF', name: 'Reflexos', icon: '⚡' },
+  { key: 'velocidade', label: 'SPD', name: 'Velocidade', icon: '💨' },
+  { key: 'posicionamento', label: 'POS', name: 'Posicionamento', icon: '🧭' }
+];
+
+function isGoalkeeper(u) {
+  return (u?.role === 'goleiro') || (u?.position === 'Goleiro');
+}
+
+function fifaAttrSet(u) {
+  return isGoalkeeper(u) ? FIFA_ATTRS_GK : FIFA_ATTRS;
+}
+
+function hasFifaAttrs(u) {
+  const f = u?.fifa || {};
+  return fifaAttrSet(u).some(a => typeof f[a.key] === 'number');
+}
+
+function nationalityCode(u) {
+  if (u.nationality && u.nationality.trim()) return u.nationality.trim().replace(/\s+/g, ' ').slice(0, 3).toUpperCase();
+  return (u.state || 'BR').toUpperCase().slice(0, 3);
+}
+
+function fmtDateBR(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  if (isNaN(d)) return iso;
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function fifaBarsHtml(u) {
+  const f = u.fifa || {};
+  return fifaAttrSet(u).map(a => {
+    const val = typeof f[a.key] === 'number' ? f[a.key] : 60;
+    return `
+      <div class="fifa-bar-row">
+        <span class="fb-label">${a.icon} ${a.name}</span>
+        <div class="fb-track"><div class="fb-fill" style="width:${Math.min(100, Math.max(0, val))}%"></div></div>
+        <span class="fb-val">${val}</span>
+      </div>`;
+  }).join('');
+}
+
 const LEVELS = ['Várzea', 'Amador', 'Base', 'Semiprofissional', 'Profissional'];
 
 const POST_CATEGORIES = {
@@ -1637,8 +1693,12 @@ async function openCompare() {
   ]);
   const u1 = ra.user, u2 = rb.user;
   const s1 = u1.stats || {}, s2 = u2.stats || {};
+  const gk1 = isGoalkeeper(u1), gk2 = isGoalkeeper(u2);
+  const fifaRows1 = (gk1 ? FIFA_ATTRS_GK : FIFA_ATTRS).map(a => [a.name, (u1.fifa || {})[a.key] || 60]);
+  const fifaRows2 = (gk2 ? FIFA_ATTRS_GK : FIFA_ATTRS).map(a => [a.name, (u2.fifa || {})[a.key] || 60]);
   const rows = [
     ['Nota geral (OVR)', u1.overall, u2.overall],
+    ...(gk1 === gk2 ? fifaRows1.map((r, i) => [`🎮 ${r[0]}`, r[1], fifaRows2[i][1]]) : []),
     ['Jogos', s1.jogos || 0, s2.jogos || 0],
     ['Gols', s1.gols || 0, s2.gols || 0],
     ['Assistências', s1.assistencias || 0, s2.assistencias || 0],
@@ -1827,6 +1887,13 @@ async function renderProfile(userId) {
         </div>
         ${u.teams ? `<p style="margin-top:10px;font-size:13px">Times por onde passou: <b>${esc(u.teams)}</b></p>` : ''}
         ${u.strengths ? `<p style="margin-top:6px;font-size:13px">Pontos fortes: <b>${esc(u.strengths)}</b></p>` : ''}
+        ${(u.nationality || u.birthdate || u.club || u.shirtNumber) ? `
+          <div style="margin-top:10px;font-size:13px;line-height:1.7;border-top:1px solid var(--border-glass);padding-top:8px">
+            ${u.nationality ? `Nacionalidade: <b>${esc(u.nationality)}</b><br>` : ''}
+            ${u.birthdate ? `Nascimento: <b>${fmtDateBR(u.birthdate)}</b><br>` : ''}
+            ${u.club ? `Clube atual: <b>${esc(u.club)}</b><br>` : ''}
+            ${u.shirtNumber ? `Camisa: <b>nº ${esc(u.shirtNumber)}</b><br>` : ''}
+          </div>` : ''}
       </div>
 
       <div class="section">
@@ -1840,6 +1907,13 @@ async function renderProfile(userId) {
           <div class="stat"><b>${u.stats?.titulos || 0}</b><span>Títulos 🏆</span></div>
         </div>
       </div>
+
+      ${hasFifaAttrs(u) ? `
+        <div class="section">
+          <h4>🎮 Atributos FIFA</h4>
+          <p class="sub" style="margin-bottom:10px">Atributos que compõem a cartinha e a nota geral <b class="ovr-mini" style="margin:0">${u.overall}</b>.</p>
+          ${fifaBarsHtml(u)}
+        </div>` : ''}
 
       <div class="section">
         <h4>🏅 Conquistas & Medalhas (${earned.length}/${(achievements || []).length})</h4>
@@ -2036,6 +2110,7 @@ function renderEditProfile(first = false) {
   if (!$('#content')) { renderShell(); }
   const c = $('#content');
   const u = ME;
+  const isGK = isGoalkeeper(u);
   c.innerHTML = `
     ${first ? '<h2>Complete seu perfil ⚽</h2><p class="sub">É isso que os olheiros e organizadores vão ver!</p>' : `<button class="back" onclick="showTab('profile')">‹ Voltar</button><h2>Editar perfil ✏️</h2>`}
     <label>Nome</label><input id="e-name" value="${esc(u.name)}">
@@ -2058,6 +2133,27 @@ function renderEditProfile(first = false) {
       </div>
       <label>Times por onde passou</label><input id="e-teams" value="${esc(u.teams || '')}" placeholder="Ex: Juína EC, Operário VG">
       <label>Pontos fortes (separados por vírgula)</label><input id="e-strengths" value="${esc(u.strengths || '')}" placeholder="Ex: velocidade, drible, cabeceio, defesa de pênalti">
+      
+      <h2 style="font-size:16px;margin-top:18px;color:var(--gold)">🪪 Informações Pessoais</h2>
+      <p class="sub" style="margin-bottom:4px">Dados sobre você que aparecem no seu perfil e na cartinha FIFA:</p>
+      <div class="row2">
+        <div><label>Nacionalidade</label><input id="e-nation" value="${esc(u.nationality || '')}" placeholder="Brasil"></div>
+        <div><label>Data de nascimento</label><input id="e-birth" type="date" value="${esc(u.birthdate || '')}"></div>
+      </div>
+      <div class="row2">
+        <div><label>Clube atual</label><input id="e-club" value="${esc(u.club || '')}" placeholder="Ex: Palmeiras"></div>
+        <div><label>Nº da camisa</label><input id="e-shirt" type="number" min="1" max="99" value="${u.shirtNumber ?? ''}" placeholder="10"></div>
+      </div>
+
+      <h2 style="font-size:16px;margin-top:18px;color:var(--gold)">🎮 Atributos FIFA (1–99)</h2>
+      <p class="sub" style="margin-bottom:4px">Esses atributos definem sua nota geral (OVR) na cartinha FIFA:</p>
+      <div class="fifa-attr-grid">
+        ${(isGK ? FIFA_ATTRS_GK : FIFA_ATTRS).map(a => `
+          <div class="fifa-attr-field">
+            <label>${a.icon} ${a.name} (${a.label})</label>
+            <input id="fa-${a.key}" type="number" min="1" max="99" value="${u.fifa?.[a.key] ?? ''}" placeholder="60">
+          </div>`).join('')}
+      </div>
       
       <h2 style="font-size:16px;margin-top:18px;color:var(--gold)">📊 Estatísticas de carreira</h2>
       <p class="sub" style="margin-bottom:4px">Seus números nos campos, society e quadras:</p>
@@ -2099,6 +2195,8 @@ async function saveProfile(first) {
       height: +$('#e-height').value || null, weight: +$('#e-weight').value || null,
       foot: $('#e-foot').value, teams: $('#e-teams').value.trim(),
       strengths: $('#e-strengths').value.trim(),
+      nationality: $('#e-nation').value.trim(), birthdate: $('#e-birth').value,
+      club: $('#e-club').value.trim(), shirtNumber: +$('#e-shirt').value || null,
       availableHire: $('#e-hire').checked, availableFreela: $('#e-freela').checked,
       fee: $('#e-fee').value.trim()
     });
@@ -2108,6 +2206,15 @@ async function saveProfile(first) {
       defesas: $('#st-defesas').value, penaltisDefendidos: $('#st-pen').value
     };
     await api('/me/stats', { method: 'PUT', body: stats });
+
+    const isGK = ME.role === 'goleiro' || $('#e-pos').value === 'Goleiro';
+    const fifaSet = isGK ? FIFA_ATTRS_GK : FIFA_ATTRS;
+    const fifa = {};
+    fifaSet.forEach(a => {
+      const v = document.getElementById('fa-' + a.key)?.value;
+      if (v !== undefined && v !== '') fifa[a.key] = parseInt(v, 10) || 0;
+    });
+    if (Object.keys(fifa).length) await api('/me/fifa', { method: 'PUT', body: fifa });
   }
   ME = await api('/me/profile', { method: 'PUT', body });
   toast('Perfil salvo com sucesso! ✅');
@@ -2529,7 +2636,10 @@ function drawAdminUsersList() {
       return `
       <div class="admin-card" id="auc-${u.id}">
         <div class="admin-card-head">
-          ${avatarHtml(u)}
+          <button class="admin-avatar-btn" onclick="renderProfile('${u.id}')" title="Ver perfil de ${esc(u.name)}">
+            ${avatarHtml(u, 'md')}
+            <span class="admin-avatar-hint">👁️</span>
+          </button>
           <div class="who">
             <b>${esc(u.name)} ${u.nickname ? `("${esc(u.nickname)}")` : ''}</b>
             <span>${esc(u.email)}</span>
@@ -2811,7 +2921,7 @@ async function drawFifaCard(u, achievements) {
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
   const x = cv.getContext('2d');
-  const isGK = u.role === 'goleiro' || u.position === 'Goleiro';
+  const isGK = isGoalkeeper(u);
   const st = u.stats || {};
 
   const g = x.createLinearGradient(0, 0, W, H);
@@ -2830,7 +2940,7 @@ async function drawFifaCard(u, achievements) {
   x.fillStyle = dark; x.textAlign = 'left';
   x.font = '900 110px Arial'; x.fillText(u.overall || 60, 65, 175);
   x.font = '900 44px Arial'; x.fillText(POS_ABBR[u.position] || (u.position || '?').slice(0, 3).toUpperCase(), 72, 228);
-  x.font = '700 26px Arial'; x.fillText((u.state || 'BR'), 78, 268);
+  x.font = '700 26px Arial'; x.fillText(nationalityCode(u), 78, 268);
 
   try {
     const img = await loadImg(u.photo || '/img/logo.png');
@@ -2853,13 +2963,19 @@ async function drawFifaCard(u, achievements) {
   x.font = `900 ${name.length > 14 ? 38 : 50}px Arial`;
   x.fillText(name, W / 2, 505);
 
-  const stats = isGK ? [
-    ['JOG', st.jogos || 0], ['DEF', st.defesas || 0], ['PEN', st.penaltisDefendidos || 0],
-    ['TIT', st.titulos || 0], ['⭐', u.ratingAvg || '—'], ['SEG', u.followers || 0]
-  ] : [
-    ['JOG', st.jogos || 0], ['GOL', st.gols || 0], ['ASS', st.assistencias || 0],
-    ['TIT', st.titulos || 0], ['⭐', u.ratingAvg || '—'], ['SEG', u.followers || 0]
-  ];
+  let stats;
+  if (hasFifaAttrs(u)) {
+    const f = u.fifa || {};
+    stats = (isGK ? FIFA_ATTRS_GK : FIFA_ATTRS).map(a => [a.label, f[a.key] || 60]);
+  } else {
+    stats = isGK ? [
+      ['JOG', st.jogos || 0], ['DEF', st.defesas || 0], ['PEN', st.penaltisDefendidos || 0],
+      ['TIT', st.titulos || 0], ['⭐', u.ratingAvg || '—'], ['SEG', u.followers || 0]
+    ] : [
+      ['JOG', st.jogos || 0], ['GOL', st.gols || 0], ['ASS', st.assistencias || 0],
+      ['TIT', st.titulos || 0], ['⭐', u.ratingAvg || '—'], ['SEG', u.followers || 0]
+    ];
+  }
   x.textAlign = 'left';
   stats.forEach(([label, val], i) => {
     const col = i < 3 ? 0 : 1;
@@ -2872,7 +2988,16 @@ async function drawFifaCard(u, achievements) {
   });
   x.fillStyle = 'rgba(38, 22, 1, 0.35)'; x.fillRect(W / 2 - 1, 560, 2, 180);
 
-  x.textAlign = 'center'; x.font = '700 22px Arial'; x.fillStyle = '#78350f';
+  x.textAlign = 'center';
+  const clubParts = [];
+  if (u.club) clubParts.push(String(u.club).toUpperCase());
+  if (u.shirtNumber) clubParts.push('Nº ' + u.shirtNumber);
+  if (clubParts.length) {
+    x.font = '900 30px Arial'; x.fillStyle = dark;
+    x.fillText(clubParts.join(' · '), W / 2, 778);
+  }
+
+  x.font = '700 22px Arial'; x.fillStyle = '#78350f';
   const medals = (achievements || []).filter(a => a.earned).slice(0, 5).map(a => a.emoji).join(' ');
   x.fillText(`${medals}  VITRINE FC  ⚽`, W / 2, 815);
   return cv;
@@ -2939,6 +3064,12 @@ function openResumePdf() {
         ${u.weight ? `Peso: <b>${u.weight} kg</b> · ` : ''}
         ${u.foot ? `Perna boa: <b>${esc(u.foot)}</b> · ` : ''}
         ${u.fee ? `Cachê: <b>${esc(u.fee)}</b>` : ''}
+      </p>
+      <p>
+        ${u.nationality ? `Nacionalidade: <b>${esc(u.nationality)}</b> · ` : ''}
+        ${u.birthdate ? `Nascimento: <b>${fmtDateBR(u.birthdate)}</b> · ` : ''}
+        ${u.club ? `Clube atual: <b>${esc(u.club)}</b> · ` : ''}
+        ${u.shirtNumber ? `Camisa: <b>nº ${esc(u.shirtNumber)}</b>` : ''}
       </p>
       ${u.teams ? `<p>Times: <b>${esc(u.teams)}</b></p>` : ''}
       ${u.strengths ? `<p>Pontos fortes: <b>${esc(u.strengths)}</b></p>` : ''}

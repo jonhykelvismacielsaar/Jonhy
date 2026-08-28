@@ -116,6 +116,11 @@ function ensureAdminUser() {
       teams: 'Vitrine FC',
       strengths: 'Gestão e Moderação da Plataforma',
       bio: 'Conta oficial de administração do Vitrine FC.',
+      nationality: 'Brasil',
+      birthdate: '',
+      club: 'Vitrine FC',
+      shirtNumber: null,
+      fifa: {},
       availableHire: false,
       availableFreela: false,
       fee: '',
@@ -330,7 +335,35 @@ function notify(userId, text, link) {
 }
 
 // ---------- Nota geral (overall) estilo FIFA ----------
+function isGoalkeeper(u) {
+  return u.role === 'goleiro' || u.position === 'Goleiro';
+}
+
 function computeOverall(u) {
+  const f = u.fifa || {};
+  const gk = isGoalkeeper(u);
+  const fifaKeys = gk
+    ? ['mergulho', 'manejo', 'chute', 'reflexos', 'velocidade', 'posicionamento']
+    : ['ritmo', 'finalizacao', 'passe', 'drible', 'defesa', 'fisico'];
+  const hasFifa = fifaKeys.some(k => typeof f[k] === 'number');
+
+  // Se o atleta definiu seus atributos FIFA, o OVR é calculado a partir deles
+  if (hasFifa) {
+    let overall;
+    if (gk) {
+      overall = (f.mergulho || 60) * 0.25 + (f.manejo || 60) * 0.15 + (f.chute || 60) * 0.10
+        + (f.reflexos || 60) * 0.25 + (f.velocidade || 60) * 0.10 + (f.posicionamento || 60) * 0.15;
+    } else {
+      overall = (f.ritmo || 60) * 0.15 + (f.finalizacao || 60) * 0.20 + (f.passe || 60) * 0.20
+        + (f.drible || 60) * 0.20 + (f.defesa || 60) * 0.10 + (f.fisico || 60) * 0.15;
+    }
+    // Bônus de experiência na carreira (até +4)
+    const st = u.stats || {};
+    overall += Math.min(4, ((st.jogos || 0) / 50) + ((st.titulos || 0) / 4));
+    return Math.min(99, Math.max(45, Math.round(overall)));
+  }
+
+  // Sem atributos FIFA definidos: nota de reputação/engajamento (comportamento anterior)
   const posts = db.posts.filter(p => p.userId === u.id);
   const postIds = posts.map(p => p.id);
   const prs = db.postRatings.filter(r => postIds.includes(r.postId));
@@ -413,6 +446,12 @@ app.post('/api/register', (req, res) => {
     teams: '',
     strengths: '',
     bio: '',
+    // Ficha FIFA (informações sobre a pessoa + atributos do card)
+    nationality: '',
+    birthdate: '',
+    club: '',
+    shirtNumber: null,
+    fifa: {},
     availableHire: true,
     availableFreela: false,
     fee: '',
@@ -472,7 +511,7 @@ app.post('/api/me/photo', auth, upload.single('photo'), (req, res) => {
 
 // ---- Editar perfil ----
 app.put('/api/me/profile', auth, (req, res) => {
-  const allowed = ['name','nickname','position','positions2','level','city','state','age','height','weight','foot','teams','strengths','bio','availableHire','availableFreela','fee'];
+  const allowed = ['name','nickname','position','positions2','level','city','state','age','height','weight','foot','teams','strengths','bio','nationality','birthdate','club','shirtNumber','availableHire','availableFreela','fee'];
   allowed.forEach(k => { if (req.body[k] !== undefined) req.user[k] = req.body[k]; });
   saveDB();
   res.json(publicUser(req.user));
@@ -484,6 +523,19 @@ app.put('/api/me/stats', auth, (req, res) => {
   req.user.stats = req.user.stats || {};
   allowed.forEach(k => {
     if (req.body[k] !== undefined) req.user.stats[k] = Math.max(0, parseInt(req.body[k], 10) || 0);
+  });
+  saveDB();
+  res.json(publicUser(req.user));
+});
+
+// ---- Atributos FIFA (1 a 99) que compõem o card e o overall ----
+app.put('/api/me/fifa', auth, (req, res) => {
+  const allowed = ['ritmo','finalizacao','passe','drible','defesa','fisico','mergulho','manejo','chute','reflexos','velocidade','posicionamento'];
+  req.user.fifa = req.user.fifa || {};
+  allowed.forEach(k => {
+    if (req.body[k] !== undefined && req.body[k] !== null && req.body[k] !== '') {
+      req.user.fifa[k] = Math.max(1, Math.min(99, parseInt(req.body[k], 10) || 0));
+    }
   });
   saveDB();
   res.json(publicUser(req.user));

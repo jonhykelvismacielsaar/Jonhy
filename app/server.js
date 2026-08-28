@@ -44,6 +44,12 @@ function loadDB() {
       db.follows = db.follows || [];
       db.stories = db.stories || [];
       db.events = db.events || [];
+      db.proposals = db.proposals || [];
+      db.messages = db.messages || [];
+      db.ratings = db.ratings || [];
+      db.notifications = db.notifications || [];
+      db.users = db.users || [];
+      db.posts = db.posts || [];
     }
   } catch (e) { console.error('Erro ao carregar DB', e); }
 }
@@ -57,8 +63,6 @@ function saveDB() {
 }
 
 // ---------- Purga de dados de demonstração ----------
-// Remove qualquer sobra de perfis/posts/stories/eventos demo (do db.json
-// ou do backup do GitHub) para o site sempre começar sem contas demo.
 function purgeDemoData() {
   const demoUsers = db.users.filter(u => u.demo || /@demo\.com$/i.test(u.email || ''));
   const demoUserIds = new Set(demoUsers.map(u => u.id));
@@ -89,7 +93,6 @@ const DEFAULT_ADMIN_PASS = 'chefe2026';
 
 function ensureAdminUser() {
   const adminEmail = DEFAULT_ADMIN_EMAIL.toLowerCase();
-  // Use the stable id first so changing the admin e-mail never creates a duplicate.
   let admin = db.users.find(u => u.id === 'admin_vitrine') || db.users.find(u => (u.email || '').toLowerCase() === adminEmail);
   const passwordHash = hash(DEFAULT_ADMIN_PASS);
 
@@ -125,8 +128,6 @@ function ensureAdminUser() {
     saveDB();
     console.log(`🛡️ Administrador oficial configurado: ${DEFAULT_ADMIN_EMAIL}`);
   } else {
-    // A senha/e-mail definidos pelo administrador são credenciais persistentes.
-    // Nunca reponha a senha padrão durante um restart (isso invalidaria a troca).
     let changed = false;
     if (!admin.isAdmin) {
       admin.isAdmin = true;
@@ -152,10 +153,7 @@ purgeDemoData();
 ensureAdminUser();
 
 // ============================================================
-// BACKUP AUTOMÁTICO NO GITHUB (grátis e permanente)
-// Ative com as variáveis de ambiente:
-//   DB_GITHUB_TOKEN = token do GitHub (com permissão de repo)
-//   DB_GITHUB_REPO  = usuario/nome-do-repo (ex: fulano/vitrinefc-dados)
+// BACKUP AUTOMÁTICO NO GITHUB
 // ============================================================
 const GH_TOKEN = process.env.DB_GITHUB_TOKEN;
 const GH_REPO = process.env.DB_GITHUB_REPO;
@@ -189,7 +187,7 @@ async function ghLoadDB() {
       const text = await rawRes.text();
       db = JSON.parse(text);
       db.tokens = db.tokens || {};
-      ['comments', 'postRatings', 'follows', 'stories', 'events'].forEach(k => { db[k] = db[k] || []; });
+      ['comments', 'postRatings', 'follows', 'stories', 'events', 'proposals', 'messages', 'ratings', 'notifications'].forEach(k => { db[k] = db[k] || []; });
       purgeDemoData();
       ensureAdminUser();
       fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
@@ -215,7 +213,7 @@ async function ghSaveDB() {
       message: 'backup automático do Vitrine FC',
       content, ...(ghDbSha ? { sha: ghDbSha } : {})
     });
-    if (r.status === 409 || r.status === 422) { // sha desatualizado
+    if (r.status === 409 || r.status === 422) {
       const meta = await ghApi('GET', 'contents/db.json');
       if (meta.status === 200) ghDbSha = (await meta.json()).sha;
       r = await ghApi('PUT', 'contents/db.json', {
@@ -234,7 +232,7 @@ async function ghSaveUpload(filename) {
   try {
     const fp = path.join(UPLOAD_DIR, filename);
     const size = fs.statSync(fp).size;
-    if (size > 20 * 1024 * 1024) return; // acima de 20MB fica só local
+    if (size > 20 * 1024 * 1024) return;
     const content = fs.readFileSync(fp).toString('base64');
     await ghApi('PUT', `contents/uploads/${filename}`, {
       message: 'upload ' + filename, content
@@ -270,7 +268,6 @@ const upload = multer({ storage, limits: { fileSize: 100 * 1024 * 1024 } });
 // ---------- Middlewares ----------
 app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
-// uploads: se não achar localmente, busca no backup do GitHub
 app.use('/uploads', (req, res, next) => {
   const name = decodeURIComponent(req.path.replace(/^\//, ''));
   if (!name || name.includes('..')) return next();
@@ -298,17 +295,13 @@ function publicUser(u) {
   rest.followers = db.follows.filter(f => f.toId === u.id).length;
   rest.following = db.follows.filter(f => f.fromId === u.id).length;
   rest.overall = computeOverall(u);
-  rest.isAdmin = !!(u.isAdmin || u.role === 'admin');
+  rest.isAdmin = !!(u.isAdmin || u.id === 'admin_vitrine');
   return rest;
 }
 
 function adminAuth(req, res, next) {
   auth(req, res, () => {
-    if (db.users.length === 1 && req.user && !req.user.isAdmin) {
-      req.user.isAdmin = true;
-      saveDB();
-    }
-    if (req.user && (req.user.isAdmin || req.user.role === 'admin')) {
+    if (req.user && (req.user.isAdmin === true || req.user.id === 'admin_vitrine')) {
       return next();
     }
     return res.status(403).json({ error: 'Acesso negado: privilégios de administrador necessários.' });
@@ -348,12 +341,12 @@ function computeOverall(u) {
   const avgProfile = ratings.length ? ratings.reduce((s, r) => s + r.stars, 0) / ratings.length : 0;
   const st = u.stats || {};
   let score = 58
-    + avgPost * 4                                  // até +20
-    + avgProfile * 2                               // até +10
-    + Math.min(6, likes)                           // até +6
-    + Math.min(5, followers * 1.5)                 // até +5
-    + Math.min(4, (st.jogos || 0) / 25)            // até +4
-    + Math.min(3, ((st.gols || 0) + (st.defesas || 0) / 10) / 15); // até +3
+    + avgPost * 4
+    + avgProfile * 2
+    + Math.min(6, likes)
+    + Math.min(5, followers * 1.5)
+    + Math.min(4, (st.jogos || 0) / 25)
+    + Math.min(3, ((st.gols || 0) + (st.defesas || 0) / 10) / 15);
   return Math.min(99, Math.max(52, Math.round(score)));
 }
 
@@ -365,7 +358,7 @@ function computeAchievements(u) {
   const fiveStars = db.postRatings.filter(r => postIds.includes(r.postId) && r.stars === 5).length;
   const followers = db.follows.filter(f => f.toId === u.id).length;
   const propsAceitas = db.proposals.filter(p => p.toId === u.id && p.status === 'aceita').length;
-  const eventos = db.events.filter(e => e.participants.includes(u.id)).length;
+  const eventos = db.events.filter(e => (e.participants || []).includes(u.id)).length;
   const stories = db.stories.filter(s => s.userId === u.id).length;
   const st = u.stats || {};
   return [
@@ -376,7 +369,7 @@ function computeAchievements(u) {
     { id: 'idolo', emoji: '👥', title: 'Ídolo Local', desc: '5 ou mais seguidores', earned: followers >= 5 },
     { id: 'namira', emoji: '👀', title: 'Na Mira dos Olheiros', desc: '5 visitas de olheiros', earned: (u.scoutViews || 0) >= 5 },
     { id: 'contratado', emoji: '🤝', title: 'Contratado!', desc: 'Teve proposta aceita', earned: propsAceitas >= 1 },
-    { id: 'presente', emoji: '🙋', title: 'Presença VIP', desc: 'Confirmou presença em peneira/jogo', earned: eventos >= 1 },
+    { id: 'presente', emoji: '🙋', title: 'Escalado no Time', desc: 'Confirmado em jogo/peneira', earned: eventos >= 1 },
     { id: 'storyteller', emoji: '📖', title: 'Sempre em Campo', desc: 'Publicou um story de jogo', earned: stories >= 1 },
     { id: 'artilheiro', emoji: '⚽', title: 'Artilheiro', desc: '25+ gols na carreira', earned: (st.gols || 0) >= 25 },
     { id: 'muralha', emoji: '🧱', title: 'Muralha', desc: '100+ defesas na carreira', earned: (st.defesas || 0) >= 100 },
@@ -395,16 +388,38 @@ function computeAchievements(u) {
 app.post('/api/register', (req, res) => {
   const { name, email, password, role } = req.body;
   if (!name || !email || !password || !role) return res.status(400).json({ error: 'Preencha todos os campos.' });
-  if (db.users.find(u => u.email.toLowerCase() === email.toLowerCase()))
+  if (db.users.find(u => (u.email || '').toLowerCase() === email.toLowerCase().trim()))
     return res.status(400).json({ error: 'Este e-mail já está cadastrado.' });
-  const isFirstUser = db.users.length === 0;
-  const isAdmin = isFirstUser || /admin/i.test(email) || role === 'admin';
+  
+  const validRoles = ['jogador', 'goleiro', 'tecnico', 'arbitro', 'olheiro'];
+  const cleanRole = validRoles.includes(role) ? role : 'jogador';
+
   const user = {
-    id: uid(), name, email, password: hash(password), role,
-    nickname: '', position: role === 'goleiro' ? 'Goleiro' : (role === 'tecnico' ? 'Técnico' : (role === 'arbitro' ? 'Árbitro' : '')),
-    positions2: '', level: '', city: '', state: '', age: null, height: null, weight: null,
-    foot: '', teams: '', strengths: '', bio: '', availableHire: true, availableFreela: false,
-    fee: '', photo: '', verified: false, isAdmin: !!isAdmin, createdAt: Date.now()
+    id: uid(),
+    name: name.trim(),
+    email: email.trim().toLowerCase(),
+    password: hash(password),
+    role: cleanRole,
+    nickname: '',
+    position: cleanRole === 'goleiro' ? 'Goleiro' : (cleanRole === 'tecnico' ? 'Técnico' : (cleanRole === 'arbitro' ? 'Árbitro' : '')),
+    positions2: '',
+    level: '',
+    city: '',
+    state: '',
+    age: null,
+    height: null,
+    weight: null,
+    foot: '',
+    teams: '',
+    strengths: '',
+    bio: '',
+    availableHire: true,
+    availableFreela: false,
+    fee: '',
+    photo: '',
+    verified: false,
+    isAdmin: false, // Usuários comuns nunca são admin no cadastro
+    createdAt: Date.now()
   };
   db.users.push(user);
   const token = uid() + uid();
@@ -416,7 +431,7 @@ app.post('/api/register', (req, res) => {
 // ---- Login ----
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
-  const user = db.users.find(u => u.email.toLowerCase() === (email || '').toLowerCase());
+  const user = db.users.find(u => (u.email || '').toLowerCase() === (email || '').toLowerCase().trim());
   if (!user || user.password !== hash(password || '')) return res.status(400).json({ error: 'E-mail ou senha incorretos.' });
   const token = uid() + uid();
   db.tokens[token] = user.id;
@@ -438,248 +453,263 @@ app.put('/api/me/security', auth, (req, res) => {
   if (!email || !/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: 'Informe um e-mail válido.' });
   const other = db.users.find(u => u.id !== req.user.id && (u.email || '').toLowerCase() === email);
   if (other) return res.status(400).json({ error: 'Este e-mail já está cadastrado.' });
-  if (password !== null && password.length < 6) return res.status(400).json({ error: 'A nova senha deve ter pelo menos 6 caracteres.' });
   req.user.email = email;
-  if (password !== null && password.length) req.user.password = hash(password);
-  saveDB();
-  res.json(publicUser(req.user));
-});
-
-app.put('/api/posts/:id', auth, (req, res) => {
-  const post = db.posts.find(p => p.id === req.params.id);
-  if (!post) return res.status(404).json({ error: 'Post não encontrado.' });
-  if (post.userId !== req.user.id && !req.user.isAdmin && req.user.role !== 'admin') return res.status(403).json({ error: 'Você só pode editar seus próprios posts.' });
-  if (req.body.caption !== undefined) post.caption = String(req.body.caption).trim();
-  if (req.body.category !== undefined) post.category = req.body.category === 'profissional' ? 'profissional' : 'pelada';
-  saveDB();
-  res.json(decoratePost(post, req.user.id));
-});
-
-app.put('/api/me', auth, (req, res) => {
-  const allowed = ['name', 'nickname', 'position', 'positions2', 'level', 'city', 'state', 'age',
-    'height', 'weight', 'foot', 'teams', 'strengths', 'bio', 'availableHire', 'availableFreela', 'fee'];
-  allowed.forEach(k => { if (req.body[k] !== undefined) req.user[k] = req.body[k]; });
-  if (req.body.stats && typeof req.body.stats === 'object') {
-    const s = {};
-    ['jogos', 'gols', 'assistencias', 'defesas', 'penaltisDefendidos', 'jogosSemSofrerGol', 'titulos'].forEach(k => {
-      const v = parseInt(req.body.stats[k]);
-      s[k] = isNaN(v) ? 0 : Math.max(0, v);
-    });
-    req.user.stats = s;
+  if (password && password.length >= 4) {
+    req.user.password = hash(password);
   }
   saveDB();
   res.json(publicUser(req.user));
 });
 
-// ---- Foto de perfil ----
-app.post('/api/me/photo', auth, upload.single('file'), (req, res) => {
+// ---- Upload de foto de perfil ----
+app.post('/api/me/photo', auth, upload.single('photo'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
   req.user.photo = '/uploads/' + req.file.filename;
+  saveDB();
   ghSaveUpload(req.file.filename);
+  res.json({ photo: req.user.photo });
+});
+
+// ---- Editar perfil ----
+app.put('/api/me/profile', auth, (req, res) => {
+  const allowed = ['name','nickname','position','positions2','level','city','state','age','height','weight','foot','teams','strengths','bio','availableHire','availableFreela','fee'];
+  allowed.forEach(k => { if (req.body[k] !== undefined) req.user[k] = req.body[k]; });
   saveDB();
   res.json(publicUser(req.user));
 });
 
-// ---- Posts (fotos e videos no feed) ----
-app.post('/api/posts', auth, upload.single('file'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
-  const isVideo = /\.(mp4|mov|webm|mkv|avi|3gp)$/i.test(req.file.filename) || (req.file.mimetype || '').startsWith('video');
-  const category = req.body.category === 'profissional' ? 'profissional' : 'pelada';
-  const post = {
-    id: uid(), userId: req.user.id, type: isVideo ? 'video' : 'photo',
-    url: '/uploads/' + req.file.filename, caption: req.body.caption || '',
-    category, likes: [], createdAt: Date.now()
-  };
-  db.posts.push(post);
-  ghSaveUpload(req.file.filename);
+// ---- Estatísticas de carreira ----
+app.put('/api/me/stats', auth, (req, res) => {
+  const allowed = ['jogos','gols','assistencias','defesas','penaltisDefendidos','titulos','melhorJogador','amarelos','vermelhos'];
+  req.user.stats = req.user.stats || {};
+  allowed.forEach(k => {
+    if (req.body[k] !== undefined) req.user.stats[k] = Math.max(0, parseInt(req.body[k], 10) || 0);
+  });
   saveDB();
-  res.json(post);
+  res.json(publicUser(req.user));
 });
 
-app.get('/api/feed', auth, (req, res) => {
-  const posts = [...db.posts].sort((a, b) => b.createdAt - a.createdAt).slice(0, 100)
-    .map(p => decoratePost(p, req.user.id));
-  res.json(posts);
+// ---- Feed & Posts ----
+app.post('/api/posts', auth, upload.single('media'), (req, res) => {
+  const { title, description, category, modality } = req.body;
+  if (!title) return res.status(400).json({ error: 'Adicione um título/legenda.' });
+  if (!req.file) return res.status(400).json({ error: 'Selecione uma foto ou vídeo.' });
+
+  const isVideo = req.file.mimetype.startsWith('video/');
+  const post = {
+    id: uid(),
+    userId: req.user.id,
+    type: isVideo ? 'video' : 'photo',
+    url: '/uploads/' + req.file.filename,
+    title,
+    description: description || '',
+    category: category === 'profissional' ? 'profissional' : 'pelada',
+    modality: ['campo', 'society', 'quadra'].includes(modality) ? modality : 'campo',
+    likes: [],
+    createdAt: Date.now()
+  };
+  db.posts.unshift(post);
+  saveDB();
+  ghSaveUpload(req.file.filename);
+  res.json(decoratePost(post, req.user.id));
 });
 
-// ---- Reels (so videos, estilo lances) ----
-app.get('/api/reels', auth, (req, res) => {
-  const posts = db.posts.filter(p => p.type === 'video')
-    .sort((a, b) => b.createdAt - a.createdAt).slice(0, 50)
-    .map(p => decoratePost(p, req.user.id));
-  res.json(posts);
+app.put('/api/posts/:id', auth, (req, res) => {
+  const post = db.posts.find(p => p.id === req.params.id);
+  if (!post) return res.status(404).json({ error: 'Post não encontrado.' });
+  if (post.userId !== req.user.id && !req.user.isAdmin && req.user.id !== 'admin_vitrine') return res.status(403).json({ error: 'Você só pode editar seus próprios posts.' });
+  if (req.body.title !== undefined) post.title = String(req.body.title).trim();
+  if (req.body.description !== undefined) post.description = String(req.body.description).trim();
+  if (req.body.category !== undefined) post.category = req.body.category === 'profissional' ? 'profissional' : 'pelada';
+  if (req.body.modality !== undefined && ['campo','society','quadra'].includes(req.body.modality)) post.modality = req.body.modality;
+  saveDB();
+  res.json(decoratePost(post, req.user.id));
 });
 
-// ---- Comentarios ----
+app.get('/api/posts', auth, (req, res) => {
+  const { userId, role, position, city, type, category, modality } = req.query;
+  let list = [...db.posts];
+  if (category) list = list.filter(p => (p.category || 'pelada') === category);
+  if (modality) list = list.filter(p => (p.modality || 'campo') === modality);
+  if (userId) list = list.filter(p => p.userId === userId);
+  if (type) list = list.filter(p => p.type === type);
+  if (role || position || city) {
+    list = list.filter(p => {
+      const u = db.users.find(x => x.id === p.userId);
+      if (!u) return false;
+      if (role && u.role !== role) return false;
+      if (position && u.position !== position && !(u.positions2 || '').includes(position)) return false;
+      if (city && !(u.city || '').toLowerCase().includes(city.toLowerCase())) return false;
+      return true;
+    });
+  }
+  res.json(list.map(p => decoratePost(p, req.user.id)));
+});
+
+// ---- Curtir post ----
+app.post('/api/posts/:id/like', auth, (req, res) => {
+  const post = db.posts.find(p => p.id === req.params.id);
+  if (!post) return res.status(404).json({ error: 'Post não encontrado.' });
+  const i = post.likes.indexOf(req.user.id);
+  if (i >= 0) post.likes.splice(i, 1);
+  else {
+    post.likes.push(req.user.id);
+    if (post.userId !== req.user.id)
+      notify(post.userId, `⚽ ${req.user.name} curtiu seu lance "${post.title}"!`);
+  }
+  saveDB();
+  res.json(decoratePost(post, req.user.id));
+});
+
+// ---- Avaliar lance com estrelas (1 a 5) ----
+app.post('/api/posts/:id/rate', auth, (req, res) => {
+  const post = db.posts.find(p => p.id === req.params.id);
+  if (!post) return res.status(404).json({ error: 'Post não encontrado.' });
+  if (post.userId === req.user.id) return res.status(400).json({ error: 'Você não pode avaliar o próprio lance.' });
+  const stars = Math.max(1, Math.min(5, parseInt(req.body.stars, 10) || 0));
+  if (!stars) return res.status(400).json({ error: 'Nota inválida.' });
+
+  const existing = db.postRatings.find(r => r.postId === post.id && r.userId === req.user.id);
+  if (existing) {
+    existing.stars = stars;
+    existing.updatedAt = Date.now();
+  } else {
+    db.postRatings.push({ id: uid(), postId: post.id, userId: req.user.id, stars, createdAt: Date.now() });
+    notify(post.userId, `⭐ ${req.user.name} avaliou seu lance "${post.title}" com ${stars} estrela(s)!`);
+  }
+  saveDB();
+  res.json(decoratePost(post, req.user.id));
+});
+
+// ---- Comentar no post ----
 app.post('/api/posts/:id/comments', auth, (req, res) => {
   const post = db.posts.find(p => p.id === req.params.id);
   if (!post) return res.status(404).json({ error: 'Post não encontrado.' });
   const text = (req.body.text || '').trim();
   if (!text) return res.status(400).json({ error: 'Comentário vazio.' });
-  const c = { id: uid(), postId: post.id, userId: req.user.id, text, createdAt: Date.now() };
-  db.comments.push(c);
+  const comment = { id: uid(), postId: post.id, userId: req.user.id, text, createdAt: Date.now() };
+  db.comments.push(comment);
   if (post.userId !== req.user.id)
-    notify(post.userId, `💬 ${req.user.name} comentou: "${text.slice(0, 60)}"`);
+    notify(post.userId, `💬 ${req.user.name} comentou no seu lance: "${text.slice(0, 40)}"`);
   saveDB();
-  res.json({ ...c, user: publicUser(req.user) });
+  res.json({ ...comment, user: publicUser(req.user) });
 });
 
+// ---- Excluir comentário ----
 app.delete('/api/comments/:id', auth, (req, res) => {
-  const i = db.comments.findIndex(c => c.id === req.params.id && (c.userId === req.user.id || req.user.isAdmin || req.user.role === 'admin'));
+  const i = db.comments.findIndex(c => c.id === req.params.id && (c.userId === req.user.id || req.user.isAdmin || req.user.id === 'admin_vitrine'));
   if (i < 0) return res.status(404).json({ error: 'Comentário não encontrado.' });
   db.comments.splice(i, 1);
   saveDB();
   res.json({ ok: true });
 });
 
-// ---- Avaliacao do post (1 a 5 estrelas) ----
-app.post('/api/posts/:id/rate', auth, (req, res) => {
-  const post = db.posts.find(p => p.id === req.params.id);
-  if (!post) return res.status(404).json({ error: 'Post não encontrado.' });
-  const stars = Math.max(1, Math.min(5, +req.body.stars || 0));
-  if (!stars) return res.status(400).json({ error: 'Escolha de 1 a 5 estrelas.' });
-  let r = db.postRatings.find(x => x.postId === post.id && x.userId === req.user.id);
-  if (r) { r.stars = stars; } else {
-    db.postRatings.push({ id: uid(), postId: post.id, userId: req.user.id, stars, createdAt: Date.now() });
-    if (post.userId !== req.user.id)
-      notify(post.userId, `⭐ ${req.user.name} avaliou seu lance com ${stars} estrela(s)!`);
-  }
-  saveDB();
-  res.json(decoratePost(post, req.user.id));
-});
-
-// ---- Seguir / deixar de seguir ----
+// ---- Seguir / Deixar de seguir ----
 app.post('/api/users/:id/follow', auth, (req, res) => {
   if (req.params.id === req.user.id) return res.status(400).json({ error: 'Você não pode seguir a si mesmo.' });
   const target = db.users.find(u => u.id === req.params.id);
   if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
-  const i = db.follows.findIndex(f => f.fromId === req.user.id && f.toId === target.id);
-  let following;
-  if (i >= 0) { db.follows.splice(i, 1); following = false; }
-  else {
+  const idx = db.follows.findIndex(f => f.fromId === req.user.id && f.toId === target.id);
+  let following = false;
+  if (idx >= 0) {
+    db.follows.splice(idx, 1);
+  } else {
     db.follows.push({ id: uid(), fromId: req.user.id, toId: target.id, createdAt: Date.now() });
-    notify(target.id, `➕ ${req.user.name} começou a seguir você!`);
     following = true;
+    notify(target.id, `👥 ${req.user.name} começou a seguir você!`);
   }
   saveDB();
   res.json({ following, followers: db.follows.filter(f => f.toId === target.id).length });
 });
 
-// ---- Craques em alta (ranking) ----
-app.get('/api/trending', auth, (req, res) => {
-  const score = u => {
-    const likes = db.posts.filter(p => p.userId === u.id).reduce((s, p) => s + p.likes.length, 0);
-    const stars = db.postRatings.filter(r => db.posts.find(p => p.id === r.postId && p.userId === u.id)).reduce((s, r) => s + r.stars, 0);
-    const fols = db.follows.filter(f => f.toId === u.id).length;
-    return likes * 2 + stars + fols * 3;
-  };
-  const list = db.users.filter(u => u.role !== 'olheiro')
-    .map(u => ({ ...publicUser(u), score: score(u) }))
-    .sort((a, b) => b.score - a.score).slice(0, 10);
-  res.json(list);
+app.get('/api/users/:id/is-following', auth, (req, res) => {
+  const isF = db.follows.some(f => f.fromId === req.user.id && f.toId === req.params.id);
+  res.json({ following: isF });
 });
 
-app.post('/api/posts/:id/like', auth, (req, res) => {
-  const post = db.posts.find(p => p.id === req.params.id);
-  if (!post) return res.status(404).json({ error: 'Post não encontrado.' });
-  const i = post.likes.indexOf(req.user.id);
-  if (i >= 0) post.likes.splice(i, 1); else {
-    post.likes.push(req.user.id);
-    if (post.userId !== req.user.id) notify(post.userId, `❤️ ${req.user.name} curtiu sua publicação.`);
-  }
-  saveDB();
-  res.json(post);
-});
-
+// ---- Excluir post ----
 app.delete('/api/posts/:id', auth, (req, res) => {
-  const i = db.posts.findIndex(p => p.id === req.params.id && (p.userId === req.user.id || req.user.isAdmin || req.user.role === 'admin'));
+  const i = db.posts.findIndex(p => p.id === req.params.id && (p.userId === req.user.id || req.user.isAdmin || req.user.id === 'admin_vitrine'));
   if (i < 0) return res.status(404).json({ error: 'Post não encontrado.' });
-  const postId = db.posts[i].id;
+  db.comments = db.comments.filter(c => c.postId !== req.params.id);
+  db.postRatings = db.postRatings.filter(r => r.postId !== req.params.id);
   db.posts.splice(i, 1);
-  db.comments = db.comments.filter(c => c.postId !== postId);
-  db.postRatings = db.postRatings.filter(r => r.postId !== postId);
   saveDB();
   res.json({ ok: true });
 });
 
-// ---- Busca de talentos ----
-app.get('/api/search', auth, (req, res) => {
-  const { q, role, position, city, state, level, freela } = req.query;
-  let users = db.users.filter(u => u.role !== 'olheiro');
-  if (role) users = users.filter(u => u.role === role);
-  if (position) users = users.filter(u =>
-    (u.position || '').toLowerCase().includes(position.toLowerCase()) ||
-    (u.positions2 || '').toLowerCase().includes(position.toLowerCase()));
-  if (city) users = users.filter(u => (u.city || '').toLowerCase().includes(city.toLowerCase()));
-  if (state) users = users.filter(u => (u.state || '').toLowerCase() === state.toLowerCase());
-  if (level) users = users.filter(u => u.level === level);
-  if (freela === '1') users = users.filter(u => u.availableFreela);
-  if (q) {
-    const s = q.toLowerCase();
-    users = users.filter(u => [u.name, u.nickname, u.position, u.city, u.teams, u.strengths]
-      .some(f => (f || '').toLowerCase().includes(s)));
-  }
-  res.json(users.map(publicUser));
-});
-
-// ---- Perfil de outro usuario ----
-app.get('/api/users/:id', auth, (req, res) => {
-  const user = db.users.find(u => u.id === req.params.id);
-  if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
-  const posts = db.posts.filter(p => p.userId === user.id).sort((a, b) => b.createdAt - a.createdAt)
-    .map(p => decoratePost(p, req.user.id));
-  const ratings = db.ratings.filter(r => r.toId === user.id).sort((a, b) => b.createdAt - a.createdAt)
-    .map(r => ({ ...r, from: publicUser(db.users.find(u => u.id === r.fromId)) }));
-  const iFollow = db.follows.some(f => f.fromId === req.user.id && f.toId === user.id);
-  if (user.id !== req.user.id && req.user.role === 'olheiro') {
-    user.scoutViews = (user.scoutViews || 0) + 1;
-    notify(user.id, `👀 Um olheiro (${req.user.name}) visitou seu perfil!`);
-    saveDB();
-  }
-  res.json({ user: publicUser(user), posts, ratings, iFollow, achievements: user.role !== 'olheiro' ? computeAchievements(user) : [] });
-});
-
 // ============================================================
-// STORIES DE JOGO 📖 (somem em 24 horas)
+// STORIES (expiram em 24h) 📖
 // ============================================================
-const STORY_TTL = 86400000;
-app.post('/api/stories', auth, upload.single('file'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
-  const isVideo = /\.(mp4|mov|webm|mkv|avi|3gp)$/i.test(req.file.filename) || (req.file.mimetype || '').startsWith('video');
+const STORY_TTL = 24 * 60 * 60 * 1000;
+
+function cleanExpiredStories() {
+  const now = Date.now();
+  const before = db.stories.length;
+  db.stories = db.stories.filter(s => (now - s.createdAt) < STORY_TTL);
+  if (before !== db.stories.length) saveDB();
+}
+
+app.post('/api/stories', auth, upload.single('media'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Selecione uma foto ou vídeo.' });
+  cleanExpiredStories();
+  const isVideo = req.file.mimetype.startsWith('video/');
   const story = {
-    id: uid(), userId: req.user.id, type: isVideo ? 'video' : 'photo',
-    url: '/uploads/' + req.file.filename, caption: req.body.caption || '',
-    viewers: [], createdAt: Date.now()
+    id: uid(),
+    userId: req.user.id,
+    type: isVideo ? 'video' : 'photo',
+    url: '/uploads/' + req.file.filename,
+    caption: (req.body.caption || '').trim(),
+    viewers: [],
+    createdAt: Date.now()
   };
   db.stories.push(story);
-  ghSaveUpload(req.file.filename);
   saveDB();
-  res.json(story);
+  ghSaveUpload(req.file.filename);
+  res.json({ ...story, user: publicUser(req.user) });
 });
 
 app.get('/api/stories', auth, (req, res) => {
-  db.stories = db.stories.filter(s => Date.now() - s.createdAt < STORY_TTL);
-  const groups = {};
-  db.stories.sort((a, b) => a.createdAt - b.createdAt).forEach(s => {
-    (groups[s.userId] = groups[s.userId] || []).push(s);
+  cleanExpiredStories();
+  const userMap = {};
+  db.stories.forEach(s => {
+    if (!userMap[s.userId]) {
+      const u = publicUser(db.users.find(x => x.id === s.userId));
+      if (u) userMap[s.userId] = { user: u, stories: [], hasUnseen: false, latest: s.createdAt };
+    }
+    if (userMap[s.userId]) {
+      const seen = (s.viewers || []).includes(req.user.id);
+      if (!seen && s.userId !== req.user.id) userMap[s.userId].hasUnseen = true;
+      if (s.createdAt > userMap[s.userId].latest) userMap[s.userId].latest = s.createdAt;
+      userMap[s.userId].stories.push({
+        ...s,
+        seen,
+        viewersCount: (s.viewers || []).length
+      });
+    }
   });
-  const list = Object.entries(groups).map(([userId, stories]) => ({
-    user: publicUser(db.users.find(u => u.id === userId)),
-    stories,
-    seenAll: stories.every(s => s.viewers.includes(req.user.id))
-  })).filter(g => g.user)
-    .sort((a, b) => (a.user.id === req.user.id ? -1 : b.user.id === req.user.id ? 1 : a.seenAll - b.seenAll));
+  const list = Object.values(userMap).sort((a, b) => {
+    if (a.user.id === req.user.id) return -1;
+    if (b.user.id === req.user.id) return 1;
+    if (a.hasUnseen !== b.hasUnseen) return a.hasUnseen ? -1 : 1;
+    return b.latest - a.latest;
+  });
   res.json(list);
 });
 
 app.post('/api/stories/:id/view', auth, (req, res) => {
-  const s = db.stories.find(x => x.id === req.params.id);
-  if (s && !s.viewers.includes(req.user.id)) { s.viewers.push(req.user.id); saveDB(); }
-  res.json({ ok: true });
+  const story = db.stories.find(s => s.id === req.params.id);
+  if (!story) return res.status(404).json({ error: 'Story não encontrado.' });
+  story.viewers = story.viewers || [];
+  if (!story.viewers.includes(req.user.id)) {
+    story.viewers.push(req.user.id);
+    saveDB();
+  }
+  res.json({ ok: true, viewersCount: story.viewers.length });
 });
 
 app.delete('/api/stories/:id', auth, (req, res) => {
-  const i = db.stories.findIndex(s => s.id === req.params.id && (s.userId === req.user.id || req.user.isAdmin || req.user.role === 'admin'));
+  const i = db.stories.findIndex(s => s.id === req.params.id && (s.userId === req.user.id || req.user.isAdmin || req.user.id === 'admin_vitrine'));
   if (i < 0) return res.status(404).json({ error: 'Story não encontrado.' });
   db.stories.splice(i, 1);
   saveDB();
@@ -687,32 +717,74 @@ app.delete('/api/stories/:id', auth, (req, res) => {
 });
 
 // ============================================================
-// PENEIRAS E JOGOS ABERTOS 📍 (com mapa)
+// PENEIRAS E JOGOS ABERTOS 📍 (CAMPO, SOCIETY, QUADRA)
 // ============================================================
 function publicEvent(ev, meId) {
   const proposals = db.proposals.filter(p => p.eventId === ev.id);
   const myProposal = proposals.find(p => p.fromId === meId);
-  const isOwner = ev.userId === meId || (db.users.find(u => u.id === meId)?.isAdmin);
+  const me = db.users.find(u => u.id === meId);
+  const isOwner = ev.userId === meId || !!(me && (me.isAdmin || me.id === 'admin_vitrine'));
+
+  const participants = Array.isArray(ev.participants) ? ev.participants : [];
+  const participantUsers = participants
+    .map(id => publicUser(db.users.find(u => u.id === id)))
+    .filter(Boolean);
+
   return {
     ...ev,
+    modality: ev.modality || 'campo',
+    neededPositions: Array.isArray(ev.neededPositions) ? ev.neededPositions : [],
+    participants,
+    participantUsers,
     creator: publicUser(db.users.find(u => u.id === ev.userId)),
-    joined: ev.participants.includes(meId),
-    participantUsers: ev.participants.slice(0, 30).map(id => publicUser(db.users.find(u => u.id === id))).filter(Boolean),
-    myProposal: myProposal ? { id: myProposal.id, status: myProposal.status, message: myProposal.message } : null,
+    isOwner: ev.userId === meId,
+    joined: participants.includes(meId),
+    myProposal: myProposal ? {
+      id: myProposal.id,
+      status: myProposal.status,
+      message: myProposal.message,
+      position: myProposal.position || '',
+      createdAt: myProposal.createdAt
+    } : null,
     proposalsCount: proposals.length,
-    proposals: isOwner ? proposals.map(p => ({ ...p, from: publicUser(db.users.find(u => u.id === p.fromId)) })) : []
+    pendingProposalsCount: proposals.filter(p => p.status === 'pendente').length,
+    proposals: isOwner ? proposals.map(p => ({
+      ...p,
+      from: publicUser(db.users.find(u => u.id === p.fromId))
+    })).sort((a, b) => b.createdAt - a.createdAt) : []
   };
 }
 
 app.post('/api/events', auth, (req, res) => {
-  const { type, title, description, city, state, place, date, fee, lat, lng } = req.body;
-  if (!type || !title || !city || !date) return res.status(400).json({ error: 'Preencha tipo, título, cidade e data.' });
+  const { type, modality, title, description, neededPositions, city, state, place, date, fee, lat, lng } = req.body;
+  if (!title || !city || !date) return res.status(400).json({ error: 'Preencha título, cidade e data.' });
+
+  let positions = [];
+  if (Array.isArray(neededPositions)) {
+    positions = neededPositions.map(p => String(p).trim()).filter(Boolean);
+  } else if (typeof neededPositions === 'string') {
+    positions = neededPositions.split(',').map(p => p.trim()).filter(Boolean);
+  }
+
+  const validModality = ['campo', 'society', 'quadra'].includes(modality) ? modality : 'campo';
+
   const ev = {
-    id: uid(), userId: req.user.id, type: type === 'peneira' ? 'peneira' : 'jogo',
-    title, description: description || '', city, state: (state || '').toUpperCase(),
-    place: place || '', date: +date, fee: fee || '',
-    lat: lat ? +lat : null, lng: lng ? +lng : null,
-    participants: [], createdAt: Date.now()
+    id: uid(),
+    userId: req.user.id,
+    type: type === 'peneira' ? 'peneira' : 'jogo',
+    modality: validModality,
+    title: String(title).trim(),
+    description: description ? String(description).trim() : '',
+    neededPositions: positions,
+    city: String(city).trim(),
+    state: (state || '').toUpperCase().trim(),
+    place: place ? String(place).trim() : '',
+    date: +date,
+    fee: fee ? String(fee).trim() : '',
+    lat: lat ? +lat : null,
+    lng: lng ? +lng : null,
+    participants: [], // Inicia vazio: apenas o organizador pode aceitar candidaturas
+    createdAt: Date.now()
   };
   db.events.push(ev);
   saveDB();
@@ -720,34 +792,50 @@ app.post('/api/events', auth, (req, res) => {
 });
 
 app.get('/api/events', auth, (req, res) => {
-  const { city, type } = req.query;
-  let list = db.events.filter(ev => ev.date > Date.now() - 86400000); // futuros + últimas 24h
+  const { city, type, modality, position, myEvents } = req.query;
+  let list = db.events.filter(ev => ev.date > Date.now() - 86400000);
   if (city) list = list.filter(ev => (ev.city || '').toLowerCase().includes(city.toLowerCase()));
   if (type) list = list.filter(ev => ev.type === type);
+  if (modality) list = list.filter(ev => (ev.modality || 'campo') === modality);
+  if (position) {
+    list = list.filter(ev => (ev.neededPositions || []).some(pos => pos.toLowerCase().includes(position.toLowerCase())));
+  }
+  if (myEvents === '1' || myEvents === 'true') {
+    list = list.filter(ev => ev.userId === req.user.id);
+  }
   list.sort((a, b) => a.date - b.date);
   res.json(list.map(ev => publicEvent(ev, req.user.id)));
 });
 
-app.post('/api/events/:id/join', auth, (req, res) => {
+app.get('/api/events/:id', auth, (req, res) => {
   const ev = db.events.find(e => e.id === req.params.id);
   if (!ev) return res.status(404).json({ error: 'Evento não encontrado.' });
-  const i = ev.participants.indexOf(req.user.id);
-  if (i >= 0) ev.participants.splice(i, 1);
-  else {
-    ev.participants.push(req.user.id);
-    if (ev.userId !== req.user.id)
-      notify(ev.userId, `🙋 ${req.user.name} confirmou presença em "${ev.title}"!`);
-  }
-  saveDB();
   res.json(publicEvent(ev, req.user.id));
 });
 
 app.delete('/api/events/:id', auth, (req, res) => {
-  const i = db.events.findIndex(e => e.id === req.params.id && (e.userId === req.user.id || req.user.isAdmin || req.user.role === 'admin'));
-  if (i < 0) return res.status(404).json({ error: 'Evento não encontrado.' });
+  const i = db.events.findIndex(e => e.id === req.params.id && (e.userId === req.user.id || req.user.isAdmin || req.user.id === 'admin_vitrine'));
+  if (i < 0) return res.status(404).json({ error: 'Evento não encontrado ou sem permissão.' });
+  db.proposals = db.proposals.filter(p => p.eventId !== req.params.id);
   db.events.splice(i, 1);
   saveDB();
   res.json({ ok: true });
+});
+
+// Remover participante escalado (apenas organizador ou admin)
+app.delete('/api/events/:id/participants/:userId', auth, (req, res) => {
+  const ev = db.events.find(e => e.id === req.params.id);
+  if (!ev) return res.status(404).json({ error: 'Evento não encontrado.' });
+  if (ev.userId !== req.user.id && !req.user.isAdmin && req.user.id !== 'admin_vitrine') {
+    return res.status(403).json({ error: 'Apenas o organizador pode gerenciar a lista de escalados.' });
+  }
+  ev.participants = (ev.participants || []).filter(id => id !== req.params.userId);
+  const prop = db.proposals.find(p => p.eventId === ev.id && p.fromId === req.params.userId && p.status === 'aceita');
+  if (prop) prop.status = 'recusada';
+
+  notify(req.params.userId, `ℹ️ Você foi removido da escalação do jogo "${ev.title}".`);
+  saveDB();
+  res.json(publicEvent(ev, req.user.id));
 });
 
 // ---- Chat ----
@@ -768,11 +856,11 @@ app.get('/api/conversations', auth, (req, res) => {
     const other = m.fromId === req.user.id ? m.toId : m.fromId;
     if (!partners[other] || partners[other].createdAt < m.createdAt) partners[other] = m;
   });
-  const list = Object.entries(partners).map(([otherId, last]) => ({
-    user: publicUser(db.users.find(u => u.id === otherId)),
-    lastMessage: last,
-    unread: mine.filter(m => m.fromId === otherId && m.toId === req.user.id && !m.read).length
-  })).filter(c => c.user).sort((a, b) => b.lastMessage.createdAt - a.lastMessage.createdAt);
+  const list = Object.entries(partners).map(([otherId, last]) => {
+    const user = publicUser(db.users.find(u => u.id === otherId));
+    const unread = db.messages.filter(m => m.fromId === otherId && m.toId === req.user.id && !m.read).length;
+    return { user, lastMessage: last, unread };
+  }).filter(c => c.user).sort((a, b) => b.lastMessage.createdAt - a.lastMessage.createdAt);
   res.json(list);
 });
 
@@ -786,9 +874,9 @@ app.get('/api/messages/:otherId', auth, (req, res) => {
   res.json(msgs);
 });
 
-// ---- Propostas ----
+// ---- Propostas & Candidaturas ----
 app.post('/api/proposals', auth, (req, res) => {
-  const { toId, type, message, eventId } = req.body; // type: contratacao | freela
+  const { toId, type, message, eventId, position } = req.body;
   let targetId = toId;
   let ev = null;
   if (eventId) {
@@ -798,21 +886,46 @@ app.post('/api/proposals', auth, (req, res) => {
   if (!targetId) return res.status(400).json({ error: 'Destinatário obrigatório.' });
   const target = db.users.find(u => u.id === targetId);
   if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
-  
+  if (targetId === req.user.id) return res.status(400).json({ error: 'Você não pode enviar proposta para o seu próprio evento ou perfil.' });
+
+  if (eventId) {
+    const existing = db.proposals.find(p => p.eventId === eventId && p.fromId === req.user.id && p.status === 'pendente');
+    if (existing) {
+      return res.status(400).json({ error: 'Você já enviou uma proposta para este jogo. Aguarde a resposta do organizador.' });
+    }
+  }
+
   const prop = {
-    id: uid(), fromId: req.user.id, toId: targetId, eventId: eventId || null, type: type || 'freela',
-    message: message || '', status: 'pendente', createdAt: Date.now()
+    id: uid(),
+    fromId: req.user.id,
+    toId: targetId,
+    eventId: eventId || null,
+    type: eventId ? 'evento_candidatura' : (type || 'freela'),
+    position: position ? String(position).trim() : (req.user.position || ''),
+    message: message ? String(message).trim() : '',
+    status: 'pendente',
+    createdAt: Date.now()
   };
   db.proposals.push(prop);
+
+  const modalityNames = { campo: 'Futebol de Campo', society: 'Society (Fut 7)', quadra: 'Futsal / Quadra' };
+  const modalityLabel = ev ? (modalityNames[ev.modality] || 'Jogo') : '';
   const label = ev
-    ? `enviou uma proposta para o seu jogo "${ev.title}"! ⚽`
+    ? `enviou uma proposta/candidatura para o seu jogo "${ev.title}" (${modalityLabel})! ⚽`
     : (prop.type === 'freela' ? 'te chamou para um jogo (freela)! ⚽' : 'quer te contratar! 📋');
-  notify(targetId, `🤝 ${req.user.name} ${label}`);
+
+  notify(targetId, `🤝 ${req.user.name} ${label}`, `/events`);
+
+  const posText = prop.position ? ` [Posição: ${prop.position}]` : '';
   db.messages.push({
-    id: uid(), fromId: req.user.id, toId: targetId,
-    text: `📩 PROPOSTA ${ev ? 'PARA O JOGO "' + ev.title + '"' : '(' + (prop.type === 'freela' ? 'jogo avulso' : 'contratação') + ')'}: ${prop.message || 'Tenho interesse em jogar no seu time!'}`,
-    read: false, createdAt: Date.now()
+    id: uid(),
+    fromId: req.user.id,
+    toId: targetId,
+    text: `📩 CANDIDATURA / PROPOSTA ${ev ? 'PARA O JOGO "' + ev.title + '"' : '(' + (prop.type === 'freela' ? 'jogo avulso' : 'contratação') + ')'}${posText}: ${prop.message || 'Tenho interesse em jogar no seu time!'}`,
+    read: false,
+    createdAt: Date.now()
   });
+
   saveDB();
   res.json(prop);
 });
@@ -830,10 +943,11 @@ app.get('/api/proposals', auth, (req, res) => {
 });
 
 app.put('/api/proposals/:id', auth, (req, res) => {
-  const prop = db.proposals.find(p => p.id === req.params.id && p.toId === req.user.id);
-  if (!prop) return res.status(404).json({ error: 'Proposta não encontrada.' });
-  const { status } = req.body; // aceita | recusada
+  const prop = db.proposals.find(p => p.id === req.params.id && (p.toId === req.user.id || req.user.isAdmin || req.user.id === 'admin_vitrine'));
+  if (!prop) return res.status(404).json({ error: 'Proposta não encontrada ou sem permissão.' });
+  const { status } = req.body;
   if (!['aceita', 'recusada'].includes(status)) return res.status(400).json({ error: 'Status inválido.' });
+  
   prop.status = status;
   
   let eventText = '';
@@ -841,17 +955,40 @@ app.put('/api/proposals/:id', auth, (req, res) => {
     const ev = db.events.find(e => e.id === prop.eventId);
     if (ev) {
       eventText = ` para o jogo "${ev.title}"`;
-      if (status === 'aceita' && !ev.participants.includes(prop.fromId)) {
-        ev.participants.push(prop.fromId);
+      if (!Array.isArray(ev.participants)) ev.participants = [];
+      if (status === 'aceita') {
+        if (!ev.participants.includes(prop.fromId)) {
+          ev.participants.push(prop.fromId);
+        }
+      } else if (status === 'recusada') {
+        ev.participants = ev.participants.filter(id => id !== prop.fromId);
       }
     }
   }
 
   notify(prop.fromId, status === 'aceita'
     ? `✅ ${req.user.name} ACEITOU sua proposta${eventText}! Você foi escalado no time. Combine no chat.`
-    : `❌ ${req.user.name} recusou sua proposta${eventText}.`);
+    : `❌ ${req.user.name} recusou sua proposta${eventText}.`,
+    '/events'
+  );
+
   saveDB();
   res.json(prop);
+});
+
+app.delete('/api/proposals/:id', auth, (req, res) => {
+  const i = db.proposals.findIndex(p => p.id === req.params.id && (p.fromId === req.user.id || p.toId === req.user.id || req.user.isAdmin || req.user.id === 'admin_vitrine'));
+  if (i < 0) return res.status(404).json({ error: 'Proposta não encontrada.' });
+  const prop = db.proposals[i];
+  if (prop.eventId && prop.status === 'aceita') {
+    const ev = db.events.find(e => e.id === prop.eventId);
+    if (ev && Array.isArray(ev.participants)) {
+      ev.participants = ev.participants.filter(id => id !== prop.fromId);
+    }
+  }
+  db.proposals.splice(i, 1);
+  saveDB();
+  res.json({ ok: true });
 });
 
 // ---- Avaliacoes ----
@@ -888,8 +1025,53 @@ app.get('/api/badges', auth, (req, res) => {
 // ---- Novos usuários (vitrine de recém-chegados) ----
 app.get('/api/newusers', auth, (req, res) => {
   const list = db.users.filter(u => u.role !== 'olheiro')
-    .sort((a, b) => b.createdAt - a.createdAt).slice(0, 12)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 10)
     .map(publicUser);
+  res.json(list);
+});
+
+// ---- Perfil de outro usuário ----
+app.get('/api/users/:id', auth, (req, res) => {
+  const u = db.users.find(x => x.id === req.params.id);
+  if (!u) return res.status(404).json({ error: 'Usuário não encontrado.' });
+  if (req.user.role === 'olheiro' && req.user.id !== u.id) {
+    u.scoutViews = (u.scoutViews || 0) + 1;
+    saveDB();
+  }
+  const ratings = db.ratings.filter(r => r.toId === u.id).map(r => ({
+    ...r, from: publicUser(db.users.find(x => x.id === r.fromId))
+  }));
+  const achievements = computeAchievements(u);
+  res.json({ user: publicUser(u), ratings, achievements });
+});
+
+// ---- Busca de talentos ----
+app.get('/api/search', auth, (req, res) => {
+  const { q, role, position, city, level, availableFreela } = req.query;
+  let list = db.users.filter(u => u.role !== 'olheiro');
+  if (q) {
+    const s = q.toLowerCase();
+    list = list.filter(u =>
+      (u.name || '').toLowerCase().includes(s) ||
+      (u.nickname || '').toLowerCase().includes(s) ||
+      (u.teams || '').toLowerCase().includes(s) ||
+      (u.strengths || '').toLowerCase().includes(s));
+  }
+  if (role) list = list.filter(u => u.role === role);
+  if (position) list = list.filter(u => u.position === position || (u.positions2 || '').includes(position));
+  if (city) list = list.filter(u => (u.city || '').toLowerCase().includes(city.toLowerCase()));
+  if (level) list = list.filter(u => u.level === level);
+  if (availableFreela === '1' || availableFreela === 'true') list = list.filter(u => u.availableFreela);
+  res.json(list.map(publicUser));
+});
+
+// ---- Destaques da semana (trending) ----
+app.get('/api/trending', auth, (req, res) => {
+  const list = db.users.filter(u => u.role !== 'olheiro')
+    .map(publicUser)
+    .sort((a, b) => (b.overall || 0) - (a.overall || 0))
+    .slice(0, 10);
   res.json(list);
 });
 
@@ -897,16 +1079,14 @@ app.get('/api/newusers', auth, (req, res) => {
 // PAINEL DO ADMINISTRADOR 🛡️
 // ============================================================
 
-// Ativar modo administrador na conta atual (se único usuário ou solicitado)
+// Desabilitar reivindicação de admin aberta
 app.post('/api/admin/claim', auth, (req, res) => {
-  req.user.isAdmin = true;
-  saveDB();
-  res.json({ ok: true, user: publicUser(req.user) });
+  return res.status(403).json({ error: 'Operação desativada. Apenas administradores existentes podem gerenciar privilégios.' });
 });
 
 // Estatísticas gerais para o painel admin
 app.get('/api/admin/stats', adminAuth, (req, res) => {
-  db.stories = db.stories.filter(s => Date.now() - s.createdAt < STORY_TTL);
+  cleanExpiredStories();
   const usersByRole = {};
   db.users.forEach(u => { usersByRole[u.role] = (usersByRole[u.role] || 0) + 1; });
   const postsProf = db.posts.filter(p => p.category === 'profissional').length;
@@ -916,15 +1096,16 @@ app.get('/api/admin/stats', adminAuth, (req, res) => {
   const totalLikes = db.posts.reduce((s, p) => s + (p.likes?.length || 0), 0);
   const totalComments = db.comments.length;
   const totalStoryViews = db.stories.reduce((s, st) => s + (st.viewers?.length || 0), 0);
-  const eventsPeneira = db.events.filter(e => e.type === 'peneira').length;
-  const eventsJogo = db.events.filter(e => e.type !== 'peneira').length;
+  const eventsCampo = db.events.filter(e => (e.modality || 'campo') === 'campo').length;
+  const eventsSociety = db.events.filter(e => e.modality === 'society').length;
+  const eventsQuadra = db.events.filter(e => e.modality === 'quadra').length;
   const eventsJoined = db.events.reduce((s, e) => s + (e.participants?.length || 0), 0);
 
   res.json({
     users: {
       total: db.users.length,
       byRole: usersByRole,
-      admins: db.users.filter(u => u.isAdmin || u.role === 'admin').length,
+      admins: db.users.filter(u => u.isAdmin || u.id === 'admin_vitrine').length,
       verified: db.users.filter(u => u.verified).length
     },
     posts: {
@@ -938,8 +1119,11 @@ app.get('/api/admin/stats', adminAuth, (req, res) => {
     },
     events: {
       total: db.events.length,
-      peneiras: eventsPeneira,
-      jogos: eventsJogo,
+      campo: eventsCampo,
+      society: eventsSociety,
+      quadra: eventsQuadra,
+      peneiras: db.events.filter(e => e.type === 'peneira').length,
+      jogos: db.events.filter(e => e.type !== 'peneira').length,
       joined: eventsJoined
     },
     stories: {
@@ -955,7 +1139,7 @@ app.get('/api/admin/stats', adminAuth, (req, res) => {
   });
 });
 
-// 👥 Gerenciamento de Usuários
+// 👥 Gerenciamento de Usuários (Apenas Admin)
 app.get('/api/admin/users', adminAuth, (req, res) => {
   const list = db.users.map(u => {
     const pub = publicUser(u);
@@ -970,10 +1154,11 @@ app.get('/api/admin/users', adminAuth, (req, res) => {
   res.json(list);
 });
 
+// Conceder / remover privilégios de Admin e Verificado
 app.put('/api/admin/users/:id', adminAuth, (req, res) => {
   const target = db.users.find(u => u.id === req.params.id);
   if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
-  if (target.email && target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase() && req.body.isAdmin === false) {
+  if ((target.id === 'admin_vitrine' || (target.email && target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase())) && req.body.isAdmin === false) {
     return res.status(400).json({ error: 'Não é permitido remover o privilégio da conta principal de administrador.' });
   }
   if (req.body.isAdmin !== undefined) target.isAdmin = !!req.body.isAdmin;
@@ -987,10 +1172,12 @@ app.delete('/api/admin/users/:id', adminAuth, (req, res) => {
   const uidToDelete = req.params.id;
   const target = db.users.find(u => u.id === uidToDelete);
   if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
-  if (uidToDelete === req.user.id || (target.email && target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase())) {
+  if (uidToDelete === req.user.id || uidToDelete === 'admin_vitrine' || (target.email && target.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase())) {
     return res.status(400).json({ error: 'Você não pode excluir a conta principal de administrador.' });
   }
+
   const idx = db.users.findIndex(u => u.id === uidToDelete);
+  if (idx < 0) return res.status(404).json({ error: 'Usuário não encontrado.' });
 
   const userPosts = db.posts.filter(p => p.userId === uidToDelete);
   const userPostIds = new Set(userPosts.map(p => p.id));
@@ -1000,7 +1187,7 @@ app.delete('/api/admin/users/:id', adminAuth, (req, res) => {
   db.stories = db.stories.filter(s => s.userId !== uidToDelete);
   db.events = db.events.filter(e => e.userId !== uidToDelete);
   db.events.forEach(e => {
-    e.participants = e.participants.filter(pId => pId !== uidToDelete);
+    e.participants = (e.participants || []).filter(pId => pId !== uidToDelete);
   });
   db.comments = db.comments.filter(c => c.userId !== uidToDelete && !userPostIds.has(c.postId));
   db.postRatings = db.postRatings.filter(r => r.userId !== uidToDelete && !userPostIds.has(r.postId));
@@ -1009,27 +1196,23 @@ app.delete('/api/admin/users/:id', adminAuth, (req, res) => {
   db.messages = db.messages.filter(m => m.fromId !== uidToDelete && m.toId !== uidToDelete);
   db.proposals = db.proposals.filter(p => p.fromId !== uidToDelete && p.toId !== uidToDelete);
   db.ratings = db.ratings.filter(r => r.fromId !== uidToDelete && r.toId !== uidToDelete);
-  for (const token in db.tokens) {
-    if (db.tokens[token] === uidToDelete) delete db.tokens[token];
-  }
+
   saveDB();
   res.json({ ok: true });
 });
 
 // 📸 Gerenciamento de Posts
 app.get('/api/admin/posts', adminAuth, (req, res) => {
-  const posts = [...db.posts].sort((a, b) => b.createdAt - a.createdAt)
-    .map(p => decoratePost(p, req.user.id));
-  res.json(posts);
+  const list = db.posts.map(p => decoratePost(p, req.user.id));
+  res.json(list);
 });
 
 app.put('/api/admin/posts/:id', adminAuth, (req, res) => {
   const post = db.posts.find(p => p.id === req.params.id);
   if (!post) return res.status(404).json({ error: 'Post não encontrado.' });
-  if (req.body.category) {
-    post.category = req.body.category === 'profissional' ? 'profissional' : 'pelada';
-  }
-  if (req.body.caption !== undefined) post.caption = req.body.caption;
+  if (req.body.category) post.category = req.body.category === 'profissional' ? 'profissional' : 'pelada';
+  if (req.body.modality && ['campo','society','quadra'].includes(req.body.modality)) post.modality = req.body.modality;
+  if (req.body.title) post.title = String(req.body.title).trim();
   saveDB();
   res.json(decoratePost(post, req.user.id));
 });
@@ -1037,10 +1220,9 @@ app.put('/api/admin/posts/:id', adminAuth, (req, res) => {
 app.delete('/api/admin/posts/:id', adminAuth, (req, res) => {
   const i = db.posts.findIndex(p => p.id === req.params.id);
   if (i < 0) return res.status(404).json({ error: 'Post não encontrado.' });
-  const postId = db.posts[i].id;
+  db.comments = db.comments.filter(c => c.postId !== req.params.id);
+  db.postRatings = db.postRatings.filter(r => r.postId !== req.params.id);
   db.posts.splice(i, 1);
-  db.comments = db.comments.filter(c => c.postId !== postId);
-  db.postRatings = db.postRatings.filter(r => r.postId !== postId);
   saveDB();
   res.json({ ok: true });
 });
@@ -1063,6 +1245,7 @@ app.get('/api/admin/events', adminAuth, (req, res) => {
 app.delete('/api/admin/events/:id', adminAuth, (req, res) => {
   const i = db.events.findIndex(e => e.id === req.params.id);
   if (i < 0) return res.status(404).json({ error: 'Evento não encontrado.' });
+  db.proposals = db.proposals.filter(p => p.eventId !== req.params.id);
   db.events.splice(i, 1);
   saveDB();
   res.json({ ok: true });
@@ -1070,13 +1253,13 @@ app.delete('/api/admin/events/:id', adminAuth, (req, res) => {
 
 // 📖 Gerenciamento de Stories
 app.get('/api/admin/stories', adminAuth, (req, res) => {
-  db.stories = db.stories.filter(s => Date.now() - s.createdAt < STORY_TTL);
-  const list = db.stories.sort((a, b) => b.createdAt - a.createdAt).map(s => ({
+  cleanExpiredStories();
+  const list = db.stories.map(s => ({
     ...s,
     user: publicUser(db.users.find(u => u.id === s.userId)),
-    viewersCount: s.viewers?.length || 0,
-    viewerUsers: (s.viewers || []).map(id => publicUser(db.users.find(u => u.id === id))).filter(Boolean)
-  }));
+    viewersCount: (s.viewers || []).length,
+    viewerUsers: (s.viewers || []).slice(0, 20).map(id => publicUser(db.users.find(u => u.id === id))).filter(Boolean)
+  })).sort((a, b) => b.createdAt - a.createdAt);
   res.json(list);
 });
 
@@ -1089,23 +1272,17 @@ app.delete('/api/admin/stories/:id', adminAuth, (req, res) => {
 });
 
 app.post('/api/admin/stories/purge-expired', adminAuth, (req, res) => {
+  const now = Date.now();
   const before = db.stories.length;
-  db.stories = db.stories.filter(s => Date.now() - s.createdAt < STORY_TTL);
+  db.stories = db.stories.filter(s => (now - s.createdAt) < STORY_TTL);
   const purged = before - db.stories.length;
-  saveDB();
+  if (purged > 0) saveDB();
   res.json({ ok: true, purged, remaining: db.stories.length });
 });
 
-// ---- Download do aplicativo Android (.APK) ----
-app.get('/baixar', (req, res) => {
-  const apk = path.join(__dirname, '..', 'apk', 'VitrineFC.apk');
-  if (!fs.existsSync(apk)) return res.status(404).send('APK não encontrado.');
-  res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-  res.setHeader('Content-Disposition', 'attachment; filename="VitrineFC.apk"');
-  fs.createReadStream(apk).pipe(res);
+// Inicia servidor
+app.listen(PORT, '0.0.0.0', async () => {
+  console.log(`🚀 Vitrine FC rodando na porta ${PORT}`);
+  console.log(`📱 Abra no navegador: http://localhost:${PORT}`);
+  await ghLoadDB();
 });
-
-(async () => {
-  await ghLoadDB(); // restaura o banco do GitHub, se configurado
-  app.listen(PORT, '0.0.0.0', () => console.log(`⚽ Vitrine FC rodando na porta ${PORT}`));
-})();

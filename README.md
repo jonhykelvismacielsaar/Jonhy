@@ -33,10 +33,11 @@ Clique neste botão:
 
 ---
 
-## ☁️ (Recomendado) Backup automático — nunca perder os cadastros
+## ☁️ (OBRIGATÓRIO na nuvem) Backup automático — nunca perder os cadastros
 
-No plano grátis o disco zera quando o servidor reinicia. O Vitrine FC tem
-backup automático no GitHub embutido. Para ativar:
+> ⚠️ **Leia isto se o site "resetou sozinho".** No plano grátis do Render o disco
+> é apagado a cada reinício ou novo deploy. Sem o backup abaixo, **todos os
+> cadastros somem**. Com ele configurado, nada mais se perde.
 
 1. Crie um repositório novo no seu GitHub chamado **vitrinefc-dados** (privado!)
 2. Crie um token em https://github.com/settings/tokens → **Generate new token
@@ -47,6 +48,34 @@ backup automático no GitHub embutido. Para ativar:
 4. Salve. O servidor reinicia e a partir daí **todo cadastro, post, foto e
    vídeo (até 20MB) é salvo no GitHub automaticamente** e restaurado sempre
    que o servidor reiniciar. Grátis para sempre. ✅
+
+### Como conferir se o backup está mesmo funcionando
+Acesse **https://seu-site.onrender.com/api/health**. Você verá algo assim:
+
+```json
+{ "ready": true, "origemDosDados": "nuvem", "backupNuvem": "ativo", "backupLiberado": true }
+```
+
+- `backupNuvem: "ativo"` → tudo certo, seus dados estão protegidos.
+- `backupNuvem: "desligado"` → **as variáveis acima não foram configuradas** e
+  os dados vão sumir no próximo reinício.
+- `backupNuvem: "erro: ..."` → token errado/expirado ou nome do repositório
+  incorreto. Nesse caso o app **trava o backup de propósito**, para nunca
+  apagar os dados bons que já estão salvos na nuvem.
+
+### Proteções contra perda de dados (já embutidas)
+- O site só começa a atender visitas **depois** de restaurar o backup da nuvem.
+- Nunca envia backup por cima da nuvem sem antes saber o que existe lá.
+- Se o banco ficar sem nenhum usuário, o backup é **bloqueado** automaticamente.
+- Gravação atômica do `db.json` (nada de arquivo pela metade).
+- Ao reiniciar/desligar, salva tudo e envia o último backup antes de encerrar.
+- Quedas de internet **não deslogam mais** você: o app espera o servidor acordar.
+
+### Alternativa: disco persistente
+Se você usar um plano com disco (Render Disk, VPS, etc.), basta apontar a
+variável `DATA_DIR` para o caminho do disco — ex.: `DATA_DIR=/var/data`.
+Os dados e uploads passam a viver lá e nunca são apagados nos deploys.
+
 
 ---
 

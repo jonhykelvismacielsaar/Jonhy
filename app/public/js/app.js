@@ -250,6 +250,13 @@ function postCategoryHtml(p) {
 }
 
 // ---------- API Wrapper ----------
+// Diferencia "sessão inválida" (401 → sai da conta) de "internet/servidor
+// falhou" (mantém a sessão). Antes, qualquer falha de rede derrubava o usuário
+// para a tela inicial e dava a sensação de que o site tinha resetado sozinho.
+class NetworkError extends Error {
+  constructor(msg) { super(msg); this.name = 'NetworkError'; this.offline = true; }
+}
+
 async function api(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   if (TOKEN) headers['x-token'] = TOKEN;
@@ -258,12 +265,22 @@ async function api(path, opts = {}) {
     headers['Content-Type'] = 'application/json';
     body = JSON.stringify(body);
   }
-  const res = await fetch(API + path, { ...opts, headers, body });
+  let res;
+  try {
+    res = await fetch(API + path, { ...opts, headers, body });
+  } catch {
+    // Servidor dormindo (plano grátis acorda em ~50s), 4G oscilando, etc.
+    throw new NetworkError('Sem conexão com o servidor. Seus dados estão salvos — tente de novo.');
+  }
   if (res.status === 401) { logout(); throw new Error('Sessão expirada. Faça login novamente.'); }
+  if (res.status >= 500 || res.status === 502 || res.status === 503) {
+    throw new NetworkError('O servidor está acordando ou instável. Tente novamente em instantes.');
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Erro na requisição.');
   return data;
 }
+
 
 function esc(s) {
   return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -603,17 +620,57 @@ async function doRegister() {
 // ============================================================
 async function init() {
   if (TOKEN) {
-    try {
-      ME = await api('/me');
-      enterApp();
+    // Tenta algumas vezes: no plano grátis o servidor pode levar ~50s para acordar.
+    // Só desloga se o servidor REALMENTE disser que a sessão não vale mais (401).
+    for (let tentativa = 1; tentativa <= 4; tentativa++) {
+      try {
+        ME = await api('/me');
+        enterApp();
+        return;
+      } catch (e) {
+        if (e.offline) {
+          renderWaking(tentativa);
+          await new Promise(r => setTimeout(r, tentativa * 3000));
+          continue;
+        }
+        // Sessão inválida de verdade
+        localStorage.removeItem('vfc_token');
+        TOKEN = null;
+        break;
+      }
+    }
+    if (TOKEN) {
+      // Continua sem resposta: mantém o login salvo e oferece tentar de novo,
+      // em vez de jogar o usuário para fora da conta.
+      renderConnectionError();
       return;
-    } catch {
-      localStorage.removeItem('vfc_token');
-      TOKEN = null;
     }
   }
   renderSplash();
 }
+
+function renderWaking(tentativa) {
+  document.getElementById('app').innerHTML = `
+    <div class="waking-screen">
+      <img src="/img/logo.png" alt="Vitrine FC">
+      <h2>Vitrine FC ⚽</h2>
+      <p>Acordando o servidor… (tentativa ${tentativa} de 4)</p>
+      <div class="waking-bar"><span></span></div>
+      <small>Seus dados e sua conta continuam salvos.</small>
+    </div>`;
+}
+
+function renderConnectionError() {
+  document.getElementById('app').innerHTML = `
+    <div class="waking-screen">
+      <img src="/img/logo.png" alt="Vitrine FC">
+      <h2>Sem conexão 📡</h2>
+      <p>Não conseguimos falar com o servidor agora.<br>Sua conta <b>continua salva</b> neste aparelho.</p>
+      <button class="btn btn-primary" style="max-width:280px" onclick="init()">🔄 Tentar novamente</button>
+      <button class="btn btn-outline" style="max-width:280px" onclick="logout()">Entrar com outra conta</button>
+    </div>`;
+}
+
 
 function enterApp() {
   renderShell();
@@ -1341,6 +1398,8 @@ function eventCardHtml(ev) {
       <div class="ev-meta">
         <span>📍 <b>${esc(ev.place ? ev.place + ' — ' : '')}${esc(ev.city)}${ev.state ? '/' + esc(ev.state) : ''}</b></span>
         ${ev.fee ? `<span> · 💰 <b>${esc(ev.fee)}</b></span>` : ''}
+        ${ev.address ? `<div style="margin-top:3px">🗺️ ${esc(ev.address)}</div>` : ''}
+        ${ev.lat && ev.lng ? `<div style="margin-top:4px"><a href="https://www.google.com/maps/dir/?api=1&destination=${ev.lat},${ev.lng}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--neon-green);font-weight:700;font-size:12px">➡️ Como chegar</a></div>` : ''}
       </div>
 
       <!-- Organizador do Evento -->
@@ -1544,15 +1603,22 @@ function openNewEvent() {
       </div>
 
       <label>Local (Arena, Campo, Ginásio, Clube…)</label>
-      <input id="ne-place" placeholder="Ex: Arena Bola de Ouro - Quadra 2">
+      <input id="ne-place" placeholder="Ex: Arena Bola de Ouro - Quadra 2" oninput="neAddrChanged()">
+
+      <label>📍 Endereço (rua, número e bairro)</label>
+      <input id="ne-address" placeholder="Ex: Rua das Palmeiras, 250 - Centro" oninput="neAddrChanged()">
+      <div class="geo-bar">
+        <button type="button" class="btn btn-outline btn-sm" id="ne-geo-btn" onclick="neLocalizar()">🔍 Localizar no mapa</button>
+        <span class="geo-status" id="ne-geo-status">Digite o endereço e o mapa marca sozinho.</span>
+      </div>
+
+      <div id="ne-map"></div>
+      <p class="sub" style="margin-top:-4px">Confira o pino: você pode arrastá-lo ou tocar no mapa para ajustar o ponto exato.</p>
 
       <div class="row2">
         <div><label>Data e hora</label><input id="ne-date" type="datetime-local"></div>
         <div><label>Custo por jogador</label><input id="ne-fee" placeholder="Ex: Gratuito / R$ 15"></div>
       </div>
-
-      <label>📍 Marcar ponto no mapa (opcional)</label>
-      <div id="ne-map"></div>
 
       <button class="btn btn-primary mt" id="ne-send">Publicar Evento & Abrir Vagas 📢⚽</button>
       <button class="btn btn-outline mt" id="ne-cancel">Cancelar</button>
@@ -1619,11 +1685,103 @@ function openNewEvent() {
     if (typeof L === 'undefined') return;
     pickMap = L.map('ne-map').setView([-14.2, -55.9], 4);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(pickMap);
+
+    // Toque no mapa: ajusta o pino manualmente (ajuste fino)
     pickMap.on('click', e => {
-      pick = e.latlng;
-      if (marker) marker.setLatLng(pick); else marker = L.marker(pick).addTo(pickMap);
+      setPin(e.latlng.lat, e.latlng.lng, true);
+      geoStatus('📌 Ponto ajustado manualmente no mapa.', 'ok');
     });
   }, 150);
+
+  // ---------- 🗺️ Vínculo automático do endereço com o mapa ----------
+  function geoStatus(msg, kind = '') {
+    const el = bg.querySelector('#ne-geo-status');
+    if (el) { el.textContent = msg; el.className = 'geo-status ' + kind; }
+  }
+
+  function setPin(lat, lng, keepZoom) {
+    pick = { lat, lng };
+    if (!pickMap) return;
+    if (marker) marker.setLatLng(pick);
+    else {
+      marker = L.marker(pick, { draggable: true }).addTo(pickMap);
+      // Arrastar o pino também vale como ajuste fino
+      marker.on('dragend', () => {
+        const p = marker.getLatLng();
+        pick = { lat: p.lat, lng: p.lng };
+        geoStatus('📌 Pino reposicionado por você.', 'ok');
+      });
+    }
+    pickMap.setView(pick, keepZoom ? pickMap.getZoom() : 16, { animate: true });
+    setTimeout(() => pickMap.invalidateSize(), 60);
+  }
+
+  // Monta o endereço completo a partir dos campos preenchidos
+  function enderecoCompleto() {
+    const place = bg.querySelector('#ne-place').value.trim();
+    const addr = bg.querySelector('#ne-address').value.trim();
+    const city = bg.querySelector('#ne-city').value.trim();
+    const uf = bg.querySelector('#ne-state').value.trim();
+    const partes = [addr, city, uf, 'Brasil'].filter(Boolean);
+    // O nome do local ajuda a achar arenas/ginásios conhecidos quando não há rua
+    if (!addr && place) partes.unshift(place);
+    return { texto: partes.join(', '), temEndereco: !!(addr || place), city };
+  }
+
+  let geoTimer = null, geoUltimaBusca = '', geoTravado = false;
+
+  window.neAddrChanged = () => {
+    clearTimeout(geoTimer);
+    const { temEndereco, city } = enderecoCompleto();
+    if (!temEndereco || !city) return;
+    geoStatus('⌛ Procurando o endereço no mapa…');
+    // Espera parar de digitar (respeita o limite de uso do serviço de mapas)
+    geoTimer = setTimeout(() => buscarEndereco(false), 1100);
+  };
+
+  window.neLocalizar = () => { clearTimeout(geoTimer); buscarEndereco(true); };
+
+  async function buscarEndereco(manual) {
+    const { texto, temEndereco, city } = enderecoCompleto();
+    if (!temEndereco || !city) {
+      if (manual) geoStatus('Preencha o endereço e a cidade primeiro.', 'err');
+      return;
+    }
+    if (!manual && texto === geoUltimaBusca) return;
+    if (geoTravado) return;
+
+    geoTravado = true;
+    geoStatus('⌛ Procurando o endereço no mapa…');
+    const btn = bg.querySelector('#ne-geo-btn');
+    if (btn) btn.disabled = true;
+
+    try {
+      const achado = await geocodificar(texto);
+      geoUltimaBusca = texto;
+
+      if (achado) {
+        setPin(achado.lat, achado.lng);
+        geoStatus('✅ Vinculado ao mapa: ' + achado.nome, 'ok');
+      } else if (manual) {
+        geoStatus('❌ Endereço não encontrado. Confira a rua/cidade ou toque no mapa para marcar.', 'err');
+      } else {
+        geoStatus('Não achamos esse endereço ainda — continue digitando ou toque no mapa.', 'err');
+      }
+    } catch {
+      geoStatus(manual ? '⚠️ Não deu para consultar o mapa agora. Toque nele para marcar o ponto.' : '', 'err');
+    }
+    geoTravado = false;
+    if (btn) btn.disabled = false;
+  }
+
+  // Cidade/UF também disparam a busca automática
+  setTimeout(() => {
+    ['#ne-city', '#ne-state'].forEach(sel => {
+      const el = bg.querySelector(sel);
+      if (el) el.addEventListener('input', () => window.neAddrChanged());
+    });
+  }, 100);
+
 
   bg.querySelector('#ne-send').onclick = async () => {
     try {
@@ -1643,6 +1801,7 @@ function openNewEvent() {
           city,
           state: bg.querySelector('#ne-state').value.trim(),
           place: bg.querySelector('#ne-place').value.trim(),
+          address: bg.querySelector('#ne-address').value.trim(),
           date: new Date(dateVal).getTime(),
           fee: bg.querySelector('#ne-fee').value.trim(),
           lat: pick?.lat, lng: pick?.lng
@@ -1653,6 +1812,43 @@ function openNewEvent() {
       loadEvents();
     } catch (e) { toast('Erro: ' + e.message); }
   };
+}
+
+// Converte um endereço em coordenadas. Usa o OpenStreetMap (Nominatim) e,
+// se ele falhar, tenta o Photon como reserva — assim o pino quase nunca falha.
+async function geocodificar(texto) {
+  try {
+    const r = await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=br&addressdetails=1&q='
+      + encodeURIComponent(texto), { headers: { 'Accept': 'application/json' } });
+    if (r.ok) {
+      const achados = await r.json();
+      if (achados && achados.length) {
+        return {
+          lat: +achados[0].lat,
+          lng: +achados[0].lon,
+          nome: (achados[0].display_name || '').split(',').slice(0, 4).join(',')
+        };
+      }
+    }
+  } catch {}
+
+  try {
+    const r = await fetch('https://photon.komoot.io/api/?limit=1&lang=pt&q=' + encodeURIComponent(texto));
+    if (r.ok) {
+      const j = await r.json();
+      const f = j.features && j.features[0];
+      if (f && f.geometry) {
+        const pr = f.properties || {};
+        return {
+          lat: f.geometry.coordinates[1],
+          lng: f.geometry.coordinates[0],
+          nome: [pr.name, pr.street, pr.city, pr.state].filter(Boolean).join(', ')
+        };
+      }
+    }
+  } catch {}
+
+  return null;
 }
 
 // ---------- Modal de Proposta do Jogador (Candidatura à Vaga) ----------
@@ -1977,19 +2173,50 @@ async function loadTrending() {
     const list = await api('/trending');
     const el = $('#trending');
     if (!el || !list.length) return;
-    el.innerHTML = `
-      <h4 style="color:var(--gold);font-size:14px;margin-bottom:8px">🔥 Craques em alta</h4>
-      <div class="trend-strip">
-        ${list.map((u, i) => `
-          <button class="trend-card" onclick="renderProfile('${u.id}')">
-            <span class="rank">${['🥇','🥈','🥉'][i] || '#' + (i + 1)}</span>
-            ${avatarHtml(u, '', false)}
-            <b>${esc((u.nickname || u.name).split(' ')[0])}</b>
-            <span>${esc(u.position || '')}</span>
-          </button>`).join('')}
-      </div>`;
+    _trendingData = list;
+    renderTrending();
   } catch {}
 }
+
+let _trendingData = [];
+let _trendingOpen = false;
+
+function toggleTrending() {
+  _trendingOpen = !_trendingOpen;
+  renderTrending();
+}
+
+function renderTrending() {
+  const el = $('#trending');
+  if (!el || !_trendingData.length) return;
+  const MEDALS = ['🥇', '🥈', '🥉'];
+  const visiveis = _trendingOpen ? _trendingData : _trendingData.slice(0, 5);
+
+  el.innerHTML = `
+    <div class="rank-box">
+      <div class="rank-head">
+        <b>🏆 Ranking dos craques</b>
+        <span>por nota geral</span>
+      </div>
+      <ol class="rank-list">
+        ${visiveis.map((u, i) => `
+          <li class="rank-row top${i + 1}" onclick="renderProfile('${u.id}')">
+            <span class="rank-pos">${MEDALS[i] || i + 1}</span>
+            <img class="rank-thumb" src="${u.photo || '/img/logo.png'}" alt="" loading="lazy">
+            <span class="rank-name">
+              <b>${esc(u.nickname || u.name)}${u.verified ? ' ✅' : ''}</b>
+              <small>${esc([u.position, u.city].filter(Boolean).join(' · '))}</small>
+            </span>
+            <span class="rank-ovr">${u.overall}</span>
+          </li>`).join('')}
+      </ol>
+      ${_trendingData.length > 5 ? `
+        <button type="button" class="rank-more" onclick="toggleTrending()">
+          ${_trendingOpen ? '▲ Mostrar menos' : `▼ Ver o top ${_trendingData.length}`}
+        </button>` : ''}
+    </div>`;
+}
+
 
 let searchTimer = null;
 function doSearch() {

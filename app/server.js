@@ -12,8 +12,10 @@ const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const DATA_DIR = path.join(__dirname, 'data');
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
+// Permite apontar os dados para um disco persistente (Render Disk, volume, etc.)
+// Ex.: DATA_DIR=/var/data  →  /var/data/db.json e /var/data/uploads
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const UPLOAD_DIR = process.env.UPLOAD_DIR || (process.env.DATA_DIR ? path.join(DATA_DIR, 'uploads') : path.join(__dirname, 'uploads'));
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -34,33 +36,66 @@ let db = {
   tokens: {}
 };
 
+function dbCounts(d) {
+  return {
+    users: (d.users || []).length,
+    posts: (d.posts || []).length,
+    events: (d.events || []).length,
+    messages: (d.messages || []).length,
+    stories: (d.stories || []).length
+  };
+}
+function countsTotal(c) { return c.users + c.posts + c.events + c.messages + c.stories; }
+
 function loadDB() {
   try {
     if (fs.existsSync(DB_FILE)) {
-      db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-      db.tokens = db.tokens || {};
-      db.comments = db.comments || [];
-      db.postRatings = db.postRatings || [];
-      db.follows = db.follows || [];
-      db.stories = db.stories || [];
-      db.events = db.events || [];
-      db.proposals = db.proposals || [];
-      db.messages = db.messages || [];
-      db.ratings = db.ratings || [];
-      db.notifications = db.notifications || [];
-      db.users = db.users || [];
-      db.posts = db.posts || [];
+      const raw = fs.readFileSync(DB_FILE, 'utf8');
+      if (raw.trim()) {
+        db = JSON.parse(raw);
+        normalizeDB();
+        console.log('💾 Banco local carregado:', JSON.stringify(dbCounts(db)));
+      }
     }
-  } catch (e) { console.error('Erro ao carregar DB', e); }
+  } catch (e) {
+    console.error('Erro ao carregar DB', e);
+    // Nunca continua com o banco vazio por cima de um arquivo quebrado:
+    // guarda o arquivo corrompido para análise em vez de sobrescrevê-lo.
+    try {
+      fs.copyFileSync(DB_FILE, DB_FILE + '.corrompido-' + Date.now());
+      console.error('⚠️  Arquivo corrompido salvo como backup local.');
+    } catch {}
+  }
 }
+
+function normalizeDB() {
+  db.tokens = db.tokens || {};
+  ['users', 'posts', 'comments', 'postRatings', 'follows', 'stories', 'events', 'proposals', 'messages', 'ratings', 'notifications']
+    .forEach(k => { db[k] = Array.isArray(db[k]) ? db[k] : []; });
+}
+
 let saveTimer = null;
+let savePending = false;
 function saveDB() {
+  savePending = true;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-    ghScheduleSave();
-  }, 150);
+  saveTimer = setTimeout(() => { flushDB(); }, 150);
 }
+
+function flushDB() {
+  clearTimeout(saveTimer);
+  if (!savePending) return;
+  savePending = false;
+  try {
+    // Escrita atômica: grava num arquivo temporário e só depois renomeia.
+    // Se o servidor cair no meio da gravação, o db.json antigo continua íntegro.
+    const tmp = DB_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
+    fs.renameSync(tmp, DB_FILE);
+  } catch (e) { console.error('Erro ao gravar DB', e); }
+  ghScheduleSave();
+}
+
 
 // ---------- Purga de dados de demonstração ----------
 function purgeDemoData() {
@@ -153,9 +188,9 @@ function ensureAdminUser() {
   }
 }
 
-loadDB();
-purgeDemoData();
-ensureAdminUser();
+// A inicialização real (carregar backup da nuvem → limpar demo → garantir admin)
+// acontece em boot(), no final do arquivo, ANTES de o servidor aceitar visitas.
+// Assim o site nunca começa a atender com o banco vazio nem sobrescreve o backup.
 
 // ============================================================
 // BACKUP AUTOMÁTICO NO GITHUB
@@ -166,6 +201,16 @@ const GH_ON = !!(GH_TOKEN && GH_REPO);
 let ghDbSha = null;
 let ghSaveTimer = null;
 let ghSaving = false;
+// 🔒 TRAVA DE SEGURANÇA: só é liberada quando sabemos com certeza o que existe
+// na nuvem (backup restaurado OU confirmado que ainda não existe backup).
+// Enquanto estiver falsa, NADA é enviado ao GitHub — era exatamente assim que o
+// banco era zerado: o servidor subia vazio, salvava por cima do backup bom e
+// todos os cadastros sumiam.
+let ghCanSave = false;
+let ghLastCounts = null;
+let ghRestoreTries = 0;
+
+const BOOT_STATUS = { ready: false, source: 'local', cloud: GH_ON ? 'conectando' : 'desligado', message: '' };
 
 async function ghApi(method, urlPath, body, raw) {
   const r = await fetch(`https://api.github.com/repos/${GH_REPO}/${urlPath}`, {
@@ -182,25 +227,66 @@ async function ghApi(method, urlPath, body, raw) {
 }
 
 async function ghLoadDB() {
-  if (!GH_ON) return;
+  if (!GH_ON) {
+    BOOT_STATUS.cloud = 'desligado';
+    return;
+  }
   try {
     const meta = await ghApi('GET', 'contents/db.json');
+
     if (meta.status === 200) {
       const j = await meta.json();
-      ghDbSha = j.sha;
       const rawRes = await ghApi('GET', 'contents/db.json', null, true);
+      if (!rawRes.ok) throw new Error('HTTP ' + rawRes.status + ' ao baixar o backup');
       const text = await rawRes.text();
-      db = JSON.parse(text);
-      db.tokens = db.tokens || {};
-      ['comments', 'postRatings', 'follows', 'stories', 'events', 'proposals', 'messages', 'ratings', 'notifications'].forEach(k => { db[k] = db[k] || []; });
-      purgeDemoData();
-      ensureAdminUser();
-      fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-      console.log('☁️  Banco restaurado do GitHub:', GH_REPO);
-    } else {
-      console.log('☁️  GitHub configurado — primeiro backup será criado ao salvar.');
+      const cloud = JSON.parse(text);
+      if (!cloud || typeof cloud !== 'object' || !Array.isArray(cloud.users)) {
+        throw new Error('backup da nuvem está em formato inválido');
+      }
+
+      const localCounts = dbCounts(db);
+      const cloudCounts = dbCounts(cloud);
+
+      // Se por algum motivo o arquivo local tiver MAIS dados que a nuvem
+      // (ex.: backup ficou para trás), o local vence e é reenviado.
+      if (countsTotal(localCounts) > countsTotal(cloudCounts)) {
+        console.log('☁️  Backup da nuvem está atrás do arquivo local — mantendo o local e reenviando.',
+          'nuvem:', JSON.stringify(cloudCounts), 'local:', JSON.stringify(localCounts));
+        BOOT_STATUS.source = 'local (mais recente que a nuvem)';
+      } else {
+        db = cloud;
+        normalizeDB();
+        BOOT_STATUS.source = 'nuvem';
+        console.log('☁️  Banco restaurado do GitHub:', GH_REPO, JSON.stringify(dbCounts(db)));
+      }
+
+      ghDbSha = j.sha;
+      ghLastCounts = dbCounts(db);
+      ghCanSave = true;
+      BOOT_STATUS.cloud = 'ativo';
+      return;
     }
-  } catch (e) { console.error('☁️  Erro ao carregar backup do GitHub:', e.message); }
+
+    if (meta.status === 404) {
+      // Ainda não existe backup: pode criar o primeiro com segurança.
+      ghDbSha = null;
+      ghLastCounts = dbCounts(db);
+      ghCanSave = true;
+      BOOT_STATUS.cloud = 'ativo (primeiro backup pendente)';
+      console.log('☁️  GitHub configurado — primeiro backup será criado ao salvar.');
+      return;
+    }
+
+    throw new Error('HTTP ' + meta.status + ' — verifique DB_GITHUB_TOKEN e DB_GITHUB_REPO');
+  } catch (e) {
+    // 🔒 Falhou (rede, token expirado, limite da API…): NÃO liberamos a escrita.
+    // Melhor ficar sem backup por alguns minutos do que apagar o backup bom.
+    ghCanSave = false;
+    BOOT_STATUS.cloud = 'erro: ' + e.message;
+    console.error('☁️  Erro ao carregar backup do GitHub:', e.message);
+    console.error('☁️  Backup TRAVADO por segurança (nada será sobrescrito). Tentando de novo em 60s…');
+    if (ghRestoreTries++ < 30) setTimeout(ghLoadDB, 60000);
+  }
 }
 
 function ghScheduleSave() {
@@ -211,6 +297,21 @@ function ghScheduleSave() {
 
 async function ghSaveDB() {
   if (!GH_ON || ghSaving) { if (ghSaving) ghScheduleSave(); return; }
+
+  // 🔒 Trava: nunca sobrescrever o backup antes de saber o que há na nuvem.
+  if (!ghCanSave) {
+    console.warn('☁️  Backup adiado: ainda não confirmamos o estado da nuvem.');
+    return;
+  }
+
+  // 🔒 Proteção anti-zeramento: se o banco encolheu de forma absurda
+  // (ex.: caiu para zero usuários), algo deu errado — não sobrescreve.
+  const now = dbCounts(db);
+  if (ghLastCounts && now.users === 0 && ghLastCounts.users > 0) {
+    console.error('☁️  BACKUP BLOQUEADO: banco ficou sem usuários (antes:', ghLastCounts.users + ').');
+    return;
+  }
+
   ghSaving = true;
   try {
     const content = Buffer.from(JSON.stringify(db, null, 2)).toString('base64');
@@ -218,6 +319,7 @@ async function ghSaveDB() {
       message: 'backup automático do Vitrine FC',
       content, ...(ghDbSha ? { sha: ghDbSha } : {})
     });
+
     if (r.status === 409 || r.status === 422) {
       const meta = await ghApi('GET', 'contents/db.json');
       if (meta.status === 200) ghDbSha = (await meta.json()).sha;
@@ -226,9 +328,17 @@ async function ghSaveDB() {
         content, ...(ghDbSha ? { sha: ghDbSha } : {})
       });
     }
-    if (r.ok) { ghDbSha = (await r.json()).content.sha; }
-    else console.error('☁️  Backup falhou:', r.status, (await r.text()).slice(0, 120));
-  } catch (e) { console.error('☁️  Backup falhou:', e.message); }
+    if (r.ok) {
+      ghDbSha = (await r.json()).content.sha;
+      ghLastCounts = now;
+    } else {
+      console.error('☁️  Backup falhou:', r.status, (await r.text()).slice(0, 120));
+      ghScheduleSave(); // tenta de novo em vez de perder a alteração
+    }
+  } catch (e) {
+    console.error('☁️  Backup falhou:', e.message);
+    ghScheduleSave();
+  }
   ghSaving = false;
 }
 
@@ -281,6 +391,21 @@ app.use('/uploads', (req, res, next) => {
   ghFetchUpload(name).then(() => next()).catch(() => next());
 });
 app.use('/uploads', express.static(UPLOAD_DIR));
+
+// Diagnóstico: mostra se o backup na nuvem está funcionando de verdade.
+// Útil para descobrir por que dados sumiriam. Acesse /api/health
+app.get('/api/health', (req, res) => {
+  res.json({
+    ok: true,
+    ready: BOOT_STATUS.ready,
+    origemDosDados: BOOT_STATUS.source,
+    backupNuvem: BOOT_STATUS.cloud,
+    backupLiberado: ghCanSave,
+    conteudo: dbCounts(db),
+    aviso: GH_ON ? null : 'Backup na nuvem desligado: em hospedagem grátis os dados somem a cada reinício. Configure DB_GITHUB_TOKEN e DB_GITHUB_REPO.'
+  });
+});
+
 
 function auth(req, res, next) {
   const token = req.headers['x-token'];
@@ -930,7 +1055,7 @@ function publicEvent(ev, meId) {
 }
 
 app.post('/api/events', auth, (req, res) => {
-  const { type, modality, title, description, neededPositions, city, state, place, date, fee, lat, lng } = req.body;
+  const { type, modality, title, description, neededPositions, city, state, place, address, date, fee, lat, lng } = req.body;
   if (!title || !city || !date) return res.status(400).json({ error: 'Preencha título, cidade e data.' });
 
   let positions = [];
@@ -953,6 +1078,7 @@ app.post('/api/events', auth, (req, res) => {
     city: String(city).trim(),
     state: (state || '').toUpperCase().trim(),
     place: place ? String(place).trim() : '',
+    address: address ? String(address).trim() : '',
     date: +date,
     fee: fee ? String(fee).trim() : '',
     lat: lat ? +lat : null,
@@ -1249,7 +1375,7 @@ app.get('/api/search', auth, (req, res) => {
 
 // ---- Destaques da semana (trending) ----
 app.get('/api/trending', auth, (req, res) => {
-  const list = db.users.filter(u => u.role !== 'olheiro')
+  const list = db.users.filter(u => u.role !== 'olheiro' && u.role !== 'admin' && !u.isAdmin)
     .map(publicUser)
     .sort((a, b) => (b.overall || 0) - (a.overall || 0))
     .slice(0, 10);
@@ -1461,9 +1587,61 @@ app.post('/api/admin/stories/purge-expired', adminAuth, (req, res) => {
   res.json({ ok: true, purged, remaining: db.stories.length });
 });
 
-// Inicia servidor
-app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`🚀 Vitrine FC rodando na porta ${PORT}`);
-  console.log(`📱 Abra no navegador: http://localhost:${PORT}`);
+// ============================================================
+// INICIALIZAÇÃO SEGURA DO SERVIDOR
+// Ordem obrigatória: carrega local → restaura nuvem → limpa demo →
+// garante admin → SÓ ENTÃO abre o site. Nada de atender visitas com
+// o banco vazio (era isso que fazia o site "resetar sozinho").
+// ============================================================
+async function boot() {
+  loadDB();
   await ghLoadDB();
-});
+  purgeDemoData();
+  ensureAdminUser();
+  flushDB();
+  BOOT_STATUS.ready = true;
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Vitrine FC rodando na porta ${PORT}`);
+    console.log(`📱 Abra no navegador: http://localhost:${PORT}`);
+    console.log(`💾 Dados em: ${DB_FILE}`);
+    console.log(`📦 Conteúdo: ${JSON.stringify(dbCounts(db))} | origem: ${BOOT_STATUS.source} | nuvem: ${BOOT_STATUS.cloud}`);
+    if (!GH_ON) {
+      console.log('⚠️  BACKUP NA NUVEM DESLIGADO! Em hospedagens de plano grátis o disco é apagado');
+      console.log('⚠️  a cada reinício/deploy e TODOS os cadastros somem. Configure as variáveis');
+      console.log('⚠️  DB_GITHUB_TOKEN e DB_GITHUB_REPO para nunca mais perder os dados.');
+    }
+  });
+
+  // Salvamento periódico de segurança (a cada 5 min, só se houver mudança pendente)
+  setInterval(() => { if (savePending) flushDB(); }, 5 * 60 * 1000);
+}
+
+// Ao reiniciar/desligar (deploy, dormir no plano grátis…) o Render manda SIGTERM.
+// Gravamos tudo e mandamos o último backup antes de morrer.
+let shuttingDown = false;
+async function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n⏹️  ${signal} recebido — salvando dados antes de desligar…`);
+  try {
+    savePending = true;
+    clearTimeout(saveTimer);
+    const tmp = DB_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
+    fs.renameSync(tmp, DB_FILE);
+    savePending = false;
+    clearTimeout(ghSaveTimer);
+    await ghSaveDB();
+    console.log('✅ Dados salvos com segurança.');
+  } catch (e) { console.error('Erro ao salvar no desligamento:', e.message); }
+  process.exit(0);
+}
+['SIGTERM', 'SIGINT'].forEach(sig => process.on(sig, () => gracefulShutdown(sig)));
+
+// Um erro solto nunca deve derrubar o servidor e levar dados junto.
+process.on('uncaughtException', e => console.error('❌ Erro não tratado:', e));
+process.on('unhandledRejection', e => console.error('❌ Promessa rejeitada:', e));
+
+boot();
+

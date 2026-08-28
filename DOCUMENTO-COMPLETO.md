@@ -10,16 +10,58 @@ como PWA instalável e como aplicativo Android (.APK).
 
 ---
 
-## TIPOS DE CONTA (5)
-1. 🏃 JOGADOR — cria perfil, posta lances, recebe propostas
-2. 🧤 GOLEIRO — igual jogador, com destaque para freelancer (jogo avulso)
-3. 📋 TÉCNICO — perfil com experiência e times treinados
-4. 🟨 ÁRBITRO — perfil com disponibilidade para apitar jogos
-5. 🔎 OLHEIRO/CLUBE — busca, compara, conversa e contrata talentos
+## TIPOS DE CONTA (4 papéis no cadastro)
+1. 🏃 JOGADOR(A) — cria perfil, posta lances, recebe propostas.
+   **Goleiro virou posição**: quem escolhe "Goleiro" na hora do cadastro passa
+   a ter a ficha e os atributos FIFA de goleiro automaticamente.
+2. 📋 TÉCNICO — perfil com licenças, categorias, estilo de jogo e números no banco
+3. 🟨 ÁRBITRO / JUIZ — perfil com entidade, quadro, modalidades e números do apito
+4. 🔎 OLHEIRO/CLUBE — cadastro rápido, perfil público com contatos, busca e contrata
 
-## CADASTRO E LOGIN
-- Cadastro: nome completo + e-mail + senha + tipo de conta
+## CADASTRO E LOGIN (assistente em 2 passos)
+- **Passo 1 — "Qual é o seu papel no futebol?"**: 4 cartões coloridos
+  (verde/ciano/dourado/rosa), um por papel, com indicador de progresso.
+- **Passo 2 — dados do papel**: nome + e-mail + senha (com medidor de força e
+  botão "mostrar senha") e **só mais uma escolha específica**:
+  - Jogador → posição em chips agrupados (Goleiro / Defesa / Meio-campo / Ataque)
+  - Técnico → função (Técnico principal, Auxiliar, Base, Goleiros, Físico…)
+  - Árbitro → função (Central, Assistente, Quarto árbitro, Futsal, Society, VAR)
+  - Olheiro → clube/empresa (opcional). Nada mais.
 - Login: e-mail e senha (a conta fica salva permanentemente)
+
+## FICHA DE PERFIL ESPECÍFICA POR PAPEL
+Cada papel só vê (e só recebe no servidor) os campos que fazem sentido para ele.
+
+- **Jogador/Goleiro**: posição, outras posições, nível, camisa, idade, altura,
+  peso, perna boa, nacionalidade, nascimento, clube, times, pontos fortes,
+  atributos FIFA (de linha **ou** de goleiro), números de carreira
+  (jogos + gols/assistências **ou** jogos + defesas/pênaltis + títulos),
+  disponibilidade e cachê.
+- **Técnico**: função, categorias que treina, nível de atuação, anos de
+  experiência, licença (CBF C/B/A/Pró/CONMEBOL), estilo de jogo, equipe atual,
+  onde já trabalhou, metodologia, pontos fortes e **números no banco**
+  (jogos, vitórias, empates, títulos, acessos e % de aproveitamento).
+  Sem gols, sem assistências, sem peso/altura.
+- **Árbitro**: função, quadro/nível, entidade (CBF, Federação, Liga…),
+  anos de apito, modalidades que apita, região de atuação, pontos fortes e
+  **números do apito** (jogos, amarelos, vermelhos, pênaltis marcados, finais).
+- **Olheiro**: clube/empresa, cargo, cidade/UF, modalidades, posições que busca,
+  regiões que avalia, **contatos públicos** (WhatsApp, Instagram, e-mail) e a
+  chave "meu perfil aparece na busca de atletas". Ficha curta de propósito.
+
+## PERFIL PÚBLICO DO OLHEIRO 🔎
+- O olheiro **tem perfil**: cartão com clube, cargo, regiões, posições e
+  modalidades + uma lista de contatos clicáveis (WhatsApp abre o `wa.me`,
+  Instagram abre o perfil, e-mail abre o cliente de e-mail).
+- Atletas encontram os olheiros na aba **Buscar → 🔎 Olheiros / Clubes**
+  (filtro novo). Fora desse filtro os olheiros continuam escondidos.
+- O botão do perfil muda para **"💬 Falar com o olheiro"**.
+- O PDF deixa de ser "Currículo" e vira: **Currículo** (jogador),
+  **Portfólio** (técnico), **Súmula do Árbitro** (árbitro) e
+  **Cartão de Visita** (olheiro) — cada um com as seções do seu papel.
+- As medalhas também são específicas: goleiro tem Muralha/Pega-Pênalti,
+  técnico tem Estrategista/Acesso Garantido, árbitro tem Apito em Dia/Pulso
+  Firme e olheiro tem Radar Ligado/Faro de Olheiro.
 
 ## PERFIL DO ATLETA (todos os campos)
 - Nome completo e apelido/"nome de campo" (ex: "Foguinho", "Paredão")

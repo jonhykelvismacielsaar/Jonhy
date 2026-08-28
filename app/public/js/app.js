@@ -61,12 +61,15 @@ function timeAgo(ts) {
   if (d < 86400000) return Math.floor(d / 3600000) + ' h';
   return Math.floor(d / 86400000) + ' d';
 }
-function avatarHtml(u, cls = '') {
-  if (u && u.photo) return `<img class="avatar ${cls}" src="${esc(u.photo)}" alt="">`;
-  return `<div class="avatar avatar-ph ${cls}">${u ? (ROLES[u.role]?.emoji || '⚽') : '⚽'}</div>`;
+function avatarHtml(u, cls = '', clickable = true) {
+  const isClickable = clickable && u && u.id;
+  const onclick = isClickable ? `onclick="event.stopPropagation(); renderProfile('${u.id}')" title="Ver perfil de ${esc(u.nickname || u.name || '')}" style="cursor:pointer"` : '';
+  const clickClass = isClickable ? ' avatar-clickable' : '';
+  if (u && u.photo) return `<img class="avatar ${cls}${clickClass}" src="${esc(u.photo)}" alt="" ${onclick}>`;
+  return `<div class="avatar avatar-ph ${cls}${clickClass}" ${onclick}>${u ? (ROLES[u.role]?.emoji || '⚽') : '⚽'}</div>`;
 }
 function starsHtml(avg, count) {
-  if (!count) return '<span class="stars" style="color:var(--muted)">Sem avaliações</span>';
+  if (!count) return '<span class="stars" style="color:var(--text-muted)">Sem avaliações</span>';
   return `<span class="stars">${'★'.repeat(Math.round(avg))}${'☆'.repeat(5 - Math.round(avg))} ${avg} (${count})</span>`;
 }
 function logout() {
@@ -74,6 +77,27 @@ function logout() {
   localStorage.removeItem('vfc_token');
   clearInterval(chatPoll); clearInterval(badgePoll);
   renderSplash();
+}
+
+function triggerDoubleTapLike(postId, e) {
+  const target = e.currentTarget;
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
+  const x = e.clientX ? (e.clientX - rect.left) : (rect.width / 2);
+  const y = e.clientY ? (e.clientY - rect.top) : (rect.height / 2);
+  
+  const heart = document.createElement('div');
+  heart.className = 'double-tap-heart';
+  heart.style.left = `${x}px`;
+  heart.style.top = `${y}px`;
+  heart.innerHTML = '💛';
+  target.appendChild(heart);
+  setTimeout(() => heart.remove(), 800);
+  
+  const p = postCache[postId];
+  if (p && !p.likes.includes(ME.id)) {
+    likePost(postId);
+  }
 }
 
 // ============================================================
@@ -105,11 +129,11 @@ function renderLogin() {
       <div class="err" id="f-err"></div>
       <button class="btn btn-primary mt" onclick="doLogin()">Entrar</button>
 
-      <div style="margin-top:24px;padding:14px;background:rgba(30,130,76,0.12);border:1px dashed var(--line);border-radius:10px;text-align:center">
-        <div style="font-size:12.5px;font-weight:700;color:var(--yellow);margin-bottom:6px">🛡️ Painel do Administrador</div>
-        <div style="font-size:12px;color:var(--sub);line-height:1.6">
-          E-mail: <b style="color:var(--fg)">admin@vitrinefc.com</b><br>
-          Senha: <b style="color:var(--fg)">chefe2026</b>
+      <div style="margin-top:24px;padding:14px;background:rgba(0,255,157,0.08);border:1px dashed var(--border-glass);border-radius:14px;text-align:center">
+        <div style="font-size:12.5px;font-weight:800;color:var(--gold);margin-bottom:6px">🛡️ Painel do Administrador</div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+          E-mail: <b style="color:var(--text-primary)">admin@vitrinefc.com</b><br>
+          Senha: <b style="color:var(--text-primary)">chefe2026</b>
         </div>
         <button type="button" class="btn btn-outline btn-sm" style="margin-top:10px;font-size:11.5px;padding:5px 14px" onclick="$('#f-email').value='admin@vitrinefc.com';$('#f-pass').value='chefe2026';$('#f-err').textContent='';">⚡ Preencher Administrador</button>
       </div>
@@ -183,7 +207,7 @@ function renderShell() {
   app.innerHTML = `
     <div class="topbar">
       <div class="brand"><img src="/img/logo.png" alt="">Vitrine FC</div>
-      <div style="display:flex;align-items:center;gap:6px">
+      <div style="display:flex;align-items:center;gap:8px">
         ${isAdmin ? `<button class="topbar-admin-pill" onclick="showTab('admin')" title="Painel do Administrador">🛡️ Admin</button>` : ''}
         <button class="bell" onclick="showTab('notifs')">🔔<span class="badge" id="b-notif" style="display:none"></span></button>
       </div>
@@ -230,16 +254,16 @@ function showTab(tab) {
 // ============================================================
 async function renderFeed() {
   const c = $('#content');
-  c.innerHTML = '<p class="empty">Carregando o feed… ⚽</p>';
+  c.innerHTML = '<p class="empty">Carregando o feed futurístico… ⚽</p>';
   const [posts, storyGroups, newUsers] = await Promise.all([api('/feed'), api('/stories'), api('/newusers')]);
   drawFeed(c, posts, storyGroups, newUsers);
-  // FEED AO VIVO: atualiza sozinho quando entra post, story ou usuário novo
+  
   let lastSig = feedSignature(posts, storyGroups, newUsers);
   clearInterval(feedPoll);
   feedPoll = setInterval(async () => {
     if (currentTab !== 'feed') { clearInterval(feedPoll); return; }
     const a = document.activeElement;
-    if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) return; // não interrompe quem digita
+    if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) return;
     try {
       const [p2, s2, n2] = await Promise.all([api('/feed'), api('/stories'), api('/newusers')]);
       const sig = feedSignature(p2, s2, n2);
@@ -248,7 +272,7 @@ async function renderFeed() {
         cachePosts(p2);
         window._storyGroups = s2;
         drawFeed(c, p2, s2, n2);
-        toast('Feed atualizado! ⚽');
+        toast('Feed atualizado em tempo real! ⚽');
       }
     } catch {}
   }, 10000);
@@ -265,36 +289,36 @@ function drawFeed(c, posts, storyGroups, newUsers) {
     <div class="stories-strip">
       ${ME.role !== 'olheiro' ? `
         <div class="story-add upload-btn">
-          <div class="story-ring add">${avatarHtml(ME)}<span class="plus">+</span></div>
+          <div class="story-ring add">${avatarHtml(ME, '', false)}<span class="plus">+</span></div>
           <span>Seu story</span>
           <input type="file" accept="image/*,video/*" onchange="newStory(this)">
         </div>` : ''}
       ${storyGroups.map((g, i) => `
         <button class="story-item" onclick="openStories(${i})">
-          <div class="story-ring ${g.seenAll ? 'seen' : ''}">${avatarHtml(g.user)}</div>
+          <div class="story-ring ${g.seenAll ? 'seen' : ''}">${avatarHtml(g.user, '', false)}</div>
           <span>${esc((g.user.nickname || g.user.name).split(' ')[0])}</span>
         </button>`).join('')}
     </div>
     ${newUsers && newUsers.length ? `
-    <div class="section" style="padding:12px 14px">
-      <h4 style="color:var(--yellow);font-size:13px;margin-bottom:8px">🆕 Recém-chegados na Vitrine</h4>
+    <div class="section" style="padding:14px">
+      <h4 style="color:var(--gold);font-size:13px;margin-bottom:10px">🆕 Recém-chegados na Vitrine</h4>
       <div class="trend-strip" style="margin-bottom:0;padding-bottom:2px">
         ${newUsers.map(u => `
           <button class="trend-card" onclick="renderProfile('${u.id}')">
-            ${avatarHtml(u)}
+            ${avatarHtml(u, '', false)}
             <b>${esc((u.nickname || u.name).split(' ')[0])}</b>
             <span>${ROLES[u.role]?.emoji || ''} ${esc(u.position || ROLES[u.role]?.label || '')}</span>
           </button>`).join('')}
       </div>
     </div>` : ''}
     ${ME.role !== 'olheiro' ? `
-      <div class="section" style="display:flex;gap:10px;align-items:center">
+      <div class="section" style="display:flex;gap:12px;align-items:center">
         ${avatarHtml(ME)}
-        <button class="btn btn-green btn-sm upload-btn" style="flex:1;text-align:left;padding:12px 14px">
-          📸🎥 Postar foto ou vídeo jogando…
+        <button class="btn btn-green btn-sm upload-btn" style="flex:1;text-align:left;padding:12px 16px">
+          📸🎥 Publicar foto ou vídeo jogando…
           <input type="file" accept="image/*,video/*" onchange="newPost(this)">
         </button>
-      </div>` : `<p class="sub">👀 Você é olheiro — veja os talentos se apresentando abaixo, toque no nome para ver o perfil completo.</p>`}
+      </div>` : `<p class="sub">👀 Olheiro: navegue pelas publicações e toque no avatar ou nome para abrir o perfil completo.</p>`}
     <div id="feed-list">
       ${posts.length ? posts.map(postHtml).join('') : '<div class="empty"><span class="big">🏟️</span>Ainda não há publicações.<br>Seja o primeiro a postar um lance!</div>'}
     </div>`;
@@ -339,7 +363,10 @@ function openStories(groupIdx, storyIdx = 0) {
     <div class="sv-bars">${g.stories.map((_, i) => `<div class="sv-bar ${i < storyIdx ? 'done' : ''}"><div class="fill" id="sv-fill-${i}"></div></div>`).join('')}</div>
     <div class="sv-head">
       ${avatarHtml(g.user)}
-      <div><b>${esc(g.user.name)}</b><span>${timeAgo(s.createdAt)} atrás</span></div>
+      <div onclick="renderProfile('${g.user.id}'); closeStories();" style="cursor:pointer">
+        <b>${esc(g.user.name)} ${g.user.verified ? '✅' : ''}</b>
+        <span>${timeAgo(s.createdAt)} atrás</span>
+      </div>
       ${(s.userId === ME.id || ME.isAdmin) ? `<button class="sv-del" onclick="delStory('${s.id}')">🗑️</button>` : ''}
       <button class="sv-close" onclick="closeStories()">✕</button>
     </div>
@@ -379,16 +406,18 @@ function postHtml(p) {
   const lastComments = p.comments.slice(-2);
   return `
     <div class="post" id="post-${p.id}">
-      <div class="head" onclick="renderProfile('${p.user.id}')" style="cursor:pointer">
+      <div class="head">
         ${avatarHtml(p.user)}
-        <div class="who">
-          <b>${esc(p.user.name)} ${p.user.verified ? '✅' : ''}</b>
-          <span>${ROLES[p.user.role]?.emoji || ''} ${esc(p.user.position || ROLES[p.user.role]?.label || '')} · ${esc(p.user.city || '')} · ${timeAgo(p.createdAt)}</span>
+        <div class="who" onclick="renderProfile('${p.user.id}')" style="cursor:pointer">
+          <b>${esc(p.user.name)} ${p.user.verified ? '✅' : ''} <span class="ovr-mini">${p.user.overall || 60}</span></b>
+          <span>${ROLES[p.user.role]?.emoji || ''} ${esc(p.user.position || ROLES[p.user.role]?.label || '')}${p.user.city ? ' · ' + esc(p.user.city) : ''} · ${timeAgo(p.createdAt)}</span>
         </div>
       </div>
-      ${p.type === 'video'
-        ? `<video class="media" src="${esc(p.url)}" controls playsinline preload="metadata" onclick="openMedia('${esc(p.url)}','video','${p.id}')"></video>`
-        : `<img class="media" src="${esc(p.url)}" alt="" onclick="openMedia('${esc(p.url)}','photo','${p.id}')">`}
+      <div class="post-media-wrap" ondblclick="triggerDoubleTapLike('${p.id}', event)">
+        ${p.type === 'video'
+          ? `<video class="media" src="${esc(p.url)}" controls playsinline preload="metadata"></video>`
+          : `<img class="media" src="${esc(p.url)}" alt="" onclick="openMedia('${esc(p.url)}','photo','${p.id}')">`}
+      </div>
       <div class="body">
         <p class="caption">${esc(p.caption)}</p>
         ${postCategoryHtml(p)}
@@ -402,8 +431,9 @@ function postHtml(p) {
       <div class="actions">
         <button class="${liked ? 'liked' : ''}" onclick="likePost('${p.id}')">${liked ? '💛' : '🤍'} ${p.likes.length}</button>
         <button onclick="toggleComments('${p.id}')">💬 ${p.comments.length}</button>
-        <button onclick="openChat('${p.user.id}', '${esc(p.user.name)}')">✉️ Chamar</button>
-        ${(p.userId === ME.id || ME.isAdmin) ? `<button onclick="openEditPost('${p.id}')" title="Editar post">✏️</button><button style="color:var(--danger)" onclick="delPost('${p.id}')" title="Excluir post">🗑️</button>` : ''}
+        <button onclick="openProposal('${p.user.id}', '${esc(p.user.name)}')">🤝 Proposta</button>
+        <button onclick="openChat('${p.user.id}', '${esc(p.user.name)}')">✉️ Chat</button>
+        ${(p.userId === ME.id || ME.isAdmin) ? `<button onclick="openEditPost('${p.id}')" title="Editar">✏️</button><button style="color:var(--danger)" onclick="delPost('${p.id}')" title="Excluir">🗑️</button>` : ''}
       </div>
       <div class="comments" id="comments-${p.id}" data-open="0">
         ${p.comments.length > 2 ? `<button class="see-all" onclick="toggleComments('${p.id}')">Ver todos os ${p.comments.length} comentários</button>` : ''}
@@ -420,8 +450,13 @@ function postHtml(p) {
 }
 function commentHtml(c) {
   return `<div class="comment" id="c-${c.id}">
-    <b onclick="renderProfile('${c.user.id}')">${esc(c.user?.name || '?')}</b> ${esc(c.text)}
-    <span class="c-when">${timeAgo(c.createdAt)}${(c.userId === ME.id || ME.isAdmin) ? ` · <a onclick="delComment('${c.id}')">excluir</a>` : ''}</span>
+    <div style="display:flex;gap:8px;align-items:flex-start">
+      ${avatarHtml(c.user, 'sm')}
+      <div style="flex:1">
+        <b onclick="renderProfile('${c.user?.id}')">${esc(c.user?.name || '?')}</b>: ${esc(c.text)}
+        <span class="c-when">${timeAgo(c.createdAt)}${(c.userId === ME.id || ME.isAdmin) ? ` · <a onclick="delComment('${c.id}')">excluir</a>` : ''}</span>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -555,7 +590,7 @@ async function renderReels() {
     return;
   }
   c.innerHTML = `<div class="reels" id="reels">${reels.map(reelHtml).join('')}</div>`;
-  // play/pause automático conforme o vídeo aparece na tela
+  
   const vids = c.querySelectorAll('.reel video');
   const obs = new IntersectionObserver(entries => {
     entries.forEach(e => {
@@ -569,18 +604,19 @@ async function renderReels() {
 function reelHtml(p) {
   const liked = p.likes.includes(ME.id);
   return `
-    <div class="reel" id="reel-${p.id}">
+    <div class="reel" id="reel-${p.id}" ondblclick="triggerDoubleTapLike('${p.id}', event)">
       <video src="${esc(p.url)}" loop playsinline preload="metadata" onclick="this.paused ? this.play() : this.pause()"></video>
       <div class="r-side">
         <button class="r-like ${liked ? 'liked' : ''}" onclick="likePost('${p.id}')">${liked ? '💛' : '🤍'}<i>${p.likes.length}</i></button>
         <button onclick="openReelComments('${p.id}')">💬<i>${p.comments.length}</i></button>
         <button onclick="openReelStars('${p.id}')">⭐<i>${p.starsAvg ?? '—'}</i></button>
+        <button onclick="openProposal('${p.user.id}', '${esc(p.user.name)}')">🤝<i>prop</i></button>
         <button onclick="openChat('${p.user.id}', '${esc(p.user.name)}')">✉️<i>chat</i></button>
       </div>
-      <div class="r-info" onclick="renderProfile('${p.user.id}')">
+      <div class="r-info">
         ${avatarHtml(p.user)}
-        <div>
-          <b>${esc(p.user.name)} ${p.user.verified ? '✅' : ''}</b>
+        <div onclick="renderProfile('${p.user.id}')">
+          <b>${esc(p.user.name)} ${p.user.verified ? '✅' : ''} <span class="ovr-mini">${p.user.overall || 60}</span></b>
           <span>${ROLES[p.user.role]?.emoji || ''} ${esc(p.user.position || '')}${p.user.city ? ' · ' + esc(p.user.city) : ''}</span>
           <p>${esc(p.caption)}</p>
           ${postCategoryHtml(p)}
@@ -596,7 +632,7 @@ function openReelStars(id) {
     <div class="modal">
       <h3>⭐ Avalie este lance</h3>
       <div class="star-pick">${[1,2,3,4,5].map(i => `<span data-s="${i}" class="${p.myStars && i <= p.myStars ? 'on' : ''}">⭐</span>`).join('')}</div>
-      <p style="text-align:center;color:var(--muted);font-size:13px">${p.starsCount ? `Média: ${p.starsAvg} ⭐ (${p.starsCount} avaliações)` : 'Seja o primeiro a avaliar!'}</p>
+      <p style="text-align:center;color:var(--text-muted);font-size:13px">${p.starsCount ? `Média: ${p.starsAvg} ⭐ (${p.starsCount} avaliações)` : 'Seja o primeiro a avaliar!'}</p>
     </div>`;
   bg.onclick = e => { if (e.target === bg) bg.remove(); };
   bg.querySelectorAll('.star-pick span').forEach(s => s.onclick = async () => {
@@ -615,7 +651,7 @@ function openReelComments(id) {
     <div class="modal">
       <h3>💬 Comentários (${p.comments.length})</h3>
       <div class="c-list" id="rc-list" style="max-height:45dvh;overflow-y:auto">
-        ${p.comments.length ? p.comments.map(commentHtml).join('') : '<p style="color:var(--muted);font-size:14px">Nenhum comentário ainda. Comente primeiro!</p>'}
+        ${p.comments.length ? p.comments.map(commentHtml).join('') : '<p style="color:var(--text-muted);font-size:14px">Nenhum comentário ainda. Comente primeiro!</p>'}
       </div>
       <div class="c-input" style="margin-top:12px">
         ${avatarHtml(ME, 'sm')}
@@ -640,16 +676,16 @@ function openReelComments(id) {
 }
 
 // ============================================================
-// PENEIRAS E JOGOS ABERTOS 📍
+// PENEIRAS E JOGOS ABERTOS / MONTAR TIME ("Modinho Rio") 📍
 // ============================================================
 let evMap = null, evView = 'list';
 async function renderEvents() {
   const c = $('#content');
   c.innerHTML = `
-    <h2>Peneiras & Jogos 📍</h2>
-    <p class="sub">Peneiras, avaliações e jogos abertos perto de você. Divulgue o seu!</p>
+    <h2>Peneiras & Montar Time 📍</h2>
+    <p class="sub">Lance um evento para formar seu time ("Modinho Rio") ou encontre peneiras e rachas. Toque nas fotos dos organizadores para ver os perfis!</p>
     <div class="row2">
-      <button class="btn btn-primary btn-sm" onclick="openNewEvent()">➕ Divulgar peneira/jogo</button>
+      <button class="btn btn-primary btn-sm" onclick="openNewEvent()">➕ Divulgar jogo / montar time</button>
       <button class="btn btn-green btn-sm" id="ev-toggle" onclick="toggleEvView()">${evView === 'list' ? '🗺️ Ver no mapa' : '📋 Ver lista'}</button>
     </div>
     <div class="filters mt">
@@ -657,7 +693,7 @@ async function renderEvents() {
       <select id="ev-type" onchange="loadEvents()">
         <option value="">Peneiras e jogos</option>
         <option value="peneira">🥅 Só peneiras</option>
-        <option value="jogo">⚽ Só jogos abertos</option>
+        <option value="jogo">⚽ Só jogos / montar time</option>
       </select>
     </div>
     <div id="ev-map" style="display:${evView === 'map' ? 'block' : 'none'}"></div>
@@ -684,30 +720,73 @@ function loadEvents() {
     renderEventMap(events);
   }, 250);
 }
+
 function eventCardHtml(ev) {
   const d = new Date(ev.date);
   const dateStr = d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' }) + ' às ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const isOwner = ev.userId === ME.id || ME.isAdmin;
+  const myProp = ev.myProposal;
+  
   return `
     <div class="event-card">
       <div class="ev-top">
-        <span class="pill ${ev.type === 'peneira' ? 'green' : ''}">${ev.type === 'peneira' ? '🥅 PENEIRA' : '⚽ JOGO ABERTO'}</span>
+        <span class="pill ${ev.type === 'peneira' ? 'green' : ''}">${ev.type === 'peneira' ? '🥅 PENEIRA' : '⚽ JOGO / MONTAR TIME'}</span>
         <span class="ev-date">📅 ${dateStr}</span>
       </div>
       <b class="ev-title">${esc(ev.title)}</b>
       <p class="ev-desc">${esc(ev.description)}</p>
+      
       <div class="ev-meta">
-        📍 ${esc(ev.place ? ev.place + ' — ' : '')}${esc(ev.city)}${ev.state ? '/' + esc(ev.state) : ''}
+        📍 <b>${esc(ev.place ? ev.place + ' — ' : '')}${esc(ev.city)}${ev.state ? '/' + esc(ev.state) : ''}</b>
         ${ev.fee ? ` · 💰 ${esc(ev.fee)}` : ''}
       </div>
-      <div class="ev-meta">👤 Organizado por <b style="color:var(--yellow-soft);cursor:pointer" onclick="renderProfile('${ev.creator?.id}')">${esc(ev.creator?.name || '?')}</b> · 🙋 ${ev.participants.length} confirmado(s)</div>
-      <div class="row2 mt" style="margin-top:10px">
-        <button class="btn ${ev.joined ? 'btn-green' : 'btn-primary'} btn-sm" onclick="joinEvent('${ev.id}')">${ev.joined ? '✔️ Presença confirmada' : '🙋 Vou participar!'}</button>
-        ${(ev.userId === ME.id || ME.isAdmin)
-          ? `<button class="btn btn-danger btn-sm" onclick="delEvent('${ev.id}')">🗑️ Excluir</button>`
-          : `<button class="btn btn-green btn-sm" onclick="openChat('${ev.creator?.id}', '${esc(ev.creator?.name || '')}')">💬 Falar c/ organizador</button>`}
+      
+      <div class="ev-meta" style="margin-top:8px">
+        Organizado por:
+        ${avatarHtml(ev.creator, 'sm')}
+        <b style="color:var(--gold-soft);cursor:pointer" onclick="renderProfile('${ev.creator?.id}')">${esc(ev.creator?.name || '?')}</b>
+        <span class="ovr-mini">${ev.creator?.overall || 60}</span>
+      </div>
+
+      ${ev.participantUsers && ev.participantUsers.length ? `
+        <div class="ev-participants-strip">
+          <span style="font-size:11.5px;color:var(--text-secondary);font-weight:700">🙋 Escalados (${ev.participants.length}):</span>
+          <div class="ev-part-avatars">
+            ${ev.participantUsers.map(u => avatarHtml(u, 'sm')).join('')}
+          </div>
+        </div>` : `<div class="ev-meta" style="margin-top:4px">🙋 Confirmados: <b>${ev.participants.length}</b> jogador(es)</div>`}
+
+      ${myProp ? `
+        <div style="margin-top:10px;padding:8px 12px;background:rgba(255,215,0,0.12);border:1px solid var(--gold);border-radius:10px;font-size:12px;color:var(--gold-soft)">
+          📩 Sua proposta para este jogo: <b>${myProp.status.toUpperCase()}</b>
+        </div>` : ''}
+
+      <div class="row2 mt" style="margin-top:12px">
+        <button class="btn ${ev.joined ? 'btn-green' : 'btn-primary'} btn-sm" onclick="joinEvent('${ev.id}')">
+          ${ev.joined ? '✔️ Presença confirmada' : '🙋 Presença'}
+        </button>
+        
+        ${!isOwner ? `
+          <button class="btn btn-outline btn-sm" onclick="openEventProposalModal('${ev.id}', '${esc(ev.title)}')">
+            📩 Mandar Proposta
+          </button>` : `
+          <button class="btn btn-green btn-sm" onclick="openEventProposalsDrawer('${ev.id}', '${esc(ev.title)}')">
+            📩 Propostas (${ev.proposalsCount || 0})
+          </button>`}
+      </div>
+
+      <div class="row2 mt" style="margin-top:8px">
+        ${!isOwner ? `
+          <button class="btn btn-outline btn-sm" style="grid-column:1/-1" onclick="openChat('${ev.creator?.id}', '${esc(ev.creator?.name || '')}')">
+            💬 Conversar com Organizador
+          </button>` : `
+          <button class="btn btn-danger btn-sm" style="grid-column:1/-1" onclick="delEvent('${ev.id}')">
+            🗑️ Excluir Evento
+          </button>`}
       </div>
     </div>`;
 }
+
 function renderEventList(events) {
   const el = $('#ev-list');
   if (!el) return;
@@ -723,7 +802,7 @@ function renderEventMap(events) {
   const withCoords = events.filter(e => e.lat && e.lng);
   withCoords.forEach(ev => {
     const m = L.marker([ev.lat, ev.lng]).addTo(evMap);
-    m.bindPopup(`<b>${ev.type === 'peneira' ? '🥅' : '⚽'} ${esc(ev.title)}</b><br>${esc(ev.city)} · ${new Date(ev.date).toLocaleDateString('pt-BR')}<br><a href="#" onclick="evView='list';toggleEvView();return false">ver na lista</a>`);
+    m.bindPopup(`<b>${ev.type === 'peneira' ? '场地 🥅' : '⚽'} ${esc(ev.title)}</b><br>${esc(ev.city)} · ${new Date(ev.date).toLocaleDateString('pt-BR')}<br><a href="#" onclick="evView='list';toggleEvView();return false">ver na lista</a>`);
   });
   if (withCoords.length) evMap.fitBounds(withCoords.map(e => [e.lat, e.lng]), { padding: [40, 40], maxZoom: 11 });
 }
@@ -738,35 +817,133 @@ async function delEvent(id) {
   toast('Evento excluído');
   loadEvents();
 }
+
+function openEventProposalModal(eventId, title) {
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>📩 Mandar Proposta p/ o Time</h3>
+      <p class="sub">Proposta para o jogo: <b>${esc(title)}</b></p>
+      
+      <label>Sua Posição / Função</label>
+      <select id="epm-pos">
+        ${POSITIONS.map(p => `<option ${ME.position === p ? 'selected' : ''}>${p}</option>`).join('')}
+      </select>
+      
+      <label>Disponibilidade / Cachê (opcional)</label>
+      <input id="epm-fee" placeholder="Ex: Confirmado para amanhã / Cachê: R$ 50" value="${esc(ME.fee || '')}">
+
+      <label>Mensagem para o organizador</label>
+      <textarea id="epm-msg" rows="3" placeholder="Ex: Fala chefe! Jogo de zagueiro canhoto, tenho vaga disponível amanhã, bora colar!"></textarea>
+
+      <button class="btn btn-primary mt" id="epm-send">Enviar Proposta 📢</button>
+      <button class="btn btn-outline mt" id="epm-cancel">Cancelar</button>
+    </div>`;
+  bg.onclick = e => { if (e.target === bg) bg.remove(); };
+  bg.querySelector('#epm-cancel').onclick = () => bg.remove();
+  bg.querySelector('#epm-send').onclick = async () => {
+    try {
+      const pos = bg.querySelector('#epm-pos').value;
+      const fee = bg.querySelector('#epm-fee').value.trim();
+      const msg = bg.querySelector('#epm-msg').value.trim();
+      const text = `Posição: ${pos}${fee ? ' (' + fee + ')' : ''}. ${msg}`;
+      
+      await api('/proposals', { method: 'POST', body: { eventId, message: text, type: 'freela' } });
+      bg.remove();
+      toast('Proposta enviada ao organizador! 📩');
+      loadEvents();
+    } catch (e) { toast('Erro: ' + e.message); }
+  };
+  document.body.appendChild(bg);
+}
+
+function openEventProposalsDrawer(eventId, title) {
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>📩 Propostas para: ${esc(title)}</h3>
+      <p class="sub">Analise os candidatos e entre no perfil antes de escalar pro time!</p>
+      <div id="epd-list"><p class="empty">Carregando propostas… ⏳</p></div>
+      <button class="btn btn-primary mt" id="epd-close">Fechar</button>
+    </div>`;
+  bg.onclick = e => { if (e.target === bg) bg.remove(); };
+  bg.querySelector('#epd-close').onclick = () => bg.remove();
+  document.body.appendChild(bg);
+
+  const ev = (window._events || []).find(e => e.id === eventId);
+  const props = ev ? ev.proposals || [] : [];
+  const el = bg.querySelector('#epd-list');
+  
+  if (!props.length) {
+    el.innerHTML = `<div class="empty"><span class="big">📩</span>Nenhuma proposta recebida para este jogo ainda.<br>Divulgue nas redes!</div>`;
+    return;
+  }
+
+  el.innerHTML = props.map(p => `
+    <div class="candidate-card">
+      <div class="candidate-head">
+        ${avatarHtml(p.from, 'md')}
+        <div class="candidate-info" onclick="renderProfile('${p.from?.id}'); bg.remove();" style="cursor:pointer">
+          <b>${esc(p.from?.name || '?')} ${p.from?.verified ? '✅' : ''} <span class="ovr-mini">${p.from?.overall || 60}</span></b>
+          <span>${ROLES[p.from?.role]?.emoji || ''} ${esc(p.from?.position || '')}${p.from?.city ? ' · ' + esc(p.from?.city) : ''}</span>
+        </div>
+        <span class="status ${p.status}">${p.status.toUpperCase()}</span>
+      </div>
+      
+      <p style="font-size:13px;margin:8px 0;line-height:1.4">${esc(p.message || 'Sem mensagem.')}</p>
+      
+      <div class="row2 mt" style="margin-top:8px">
+        <button class="btn btn-outline btn-sm" onclick="renderProfile('${p.from?.id}'); bg.remove();">
+          👤 Ver Perfil
+        </button>
+        <button class="btn btn-green btn-sm" onclick="openChat('${p.from?.id}', '${esc(p.from?.name || '')}'); bg.remove();">
+          💬 Chat
+        </button>
+      </div>
+
+      ${p.status === 'pendente' ? `
+        <div class="row2 mt" style="margin-top:6px">
+          <button class="btn btn-primary btn-sm" onclick="answerProp('${p.id}', 'aceita'); bg.remove();">
+            ✅ Aceitar no Time
+          </button>
+          <button class="btn btn-danger btn-sm" onclick="answerProp('${p.id}', 'recusada'); bg.remove();">
+            ❌ Recusar
+          </button>
+        </div>` : ''}
+    </div>`).join('');
+}
+
 function openNewEvent() {
   let pick = null, pickMap = null, marker = null;
   const bg = document.createElement('div');
   bg.className = 'modal-bg';
   bg.innerHTML = `
     <div class="modal">
-      <h3>➕ Divulgar peneira ou jogo</h3>
-      <label>Tipo</label>
+      <h3>➕ Divulgar jogo ou montar time</h3>
+      <label>Tipo de Evento</label>
       <select id="ne-type">
+        <option value="jogo">⚽ Jogo aberto / Montar time ("Modinho Rio")</option>
         <option value="peneira">🥅 Peneira / avaliação de atletas</option>
-        <option value="jogo">⚽ Jogo aberto (precisa de jogadores)</option>
       </select>
-      <label>Título</label>
-      <input id="ne-title" placeholder="Ex: Peneira Sub-17 / Precisa-se de goleiro domingo">
-      <label>Descrição</label>
-      <textarea id="ne-desc" rows="2" placeholder="Detalhes: o que levar, posições, horário…"></textarea>
+      <label>Título do Jogo / Evento</label>
+      <input id="ne-title" placeholder="Ex: Precisa-se de zagueiro e goleiro amanhã às 19h">
+      <label>Descrição / Posições necessárias</label>
+      <textarea id="ne-desc" rows="2" placeholder="Detalhes: posições que faltam, nível da pelada, horário…"></textarea>
       <div class="row2">
         <div><label>Cidade</label><input id="ne-city" value="${esc(ME.city || '')}"></div>
         <div><label>UF</label><input id="ne-state" value="${esc(ME.state || '')}" maxlength="2"></div>
       </div>
-      <label>Local (campo, arena…)</label>
-      <input id="ne-place" placeholder="Ex: Campo Municipal">
+      <label>Local (campo, arena, quadra…)</label>
+      <input id="ne-place" placeholder="Ex: Arena Futebol de Ouro">
       <div class="row2">
         <div><label>Data e hora</label><input id="ne-date" type="datetime-local"></div>
-        <div><label>Custo (opcional)</label><input id="ne-fee" placeholder="Gratuito / R$ 20"></div>
+        <div><label>Custo por jogador (opcional)</label><input id="ne-fee" placeholder="Gratuito / R$ 15"></div>
       </div>
       <label>📍 Toque no mapa para marcar o local (opcional)</label>
       <div id="ne-map"></div>
-      <button class="btn btn-primary mt" id="ne-send">Publicar 📢</button>
+      <button class="btn btn-primary mt" id="ne-send">Publicar Evento 📢</button>
       <button class="btn btn-outline mt" id="ne-cancel">Cancelar</button>
     </div>`;
   bg.onclick = e => { if (e.target === bg) bg.remove(); };
@@ -796,7 +973,7 @@ function openNewEvent() {
         lat: pick?.lat, lng: pick?.lng
       } });
       bg.remove();
-      toast('Publicado! 📢⚽');
+      toast('Evento publicado com sucesso! 📢⚽');
       loadEvents();
     } catch (e) { toast('Erro: ' + e.message); }
   };
@@ -899,12 +1076,12 @@ async function loadTrending() {
     const el = $('#trending');
     if (!el || !list.length) return;
     el.innerHTML = `
-      <h4 style="color:var(--yellow);font-size:14px;margin-bottom:8px">🔥 Craques em alta</h4>
+      <h4 style="color:var(--gold);font-size:14px;margin-bottom:8px">🔥 Craques em alta</h4>
       <div class="trend-strip">
         ${list.map((u, i) => `
           <button class="trend-card" onclick="renderProfile('${u.id}')">
             <span class="rank">${['🥇','🥈','🥉'][i] || '#' + (i + 1)}</span>
-            ${avatarHtml(u)}
+            ${avatarHtml(u, '', false)}
             <b>${esc((u.nickname || u.name).split(' ')[0])}</b>
             <span>${esc(u.position || '')}</span>
           </button>`).join('')}
@@ -962,10 +1139,10 @@ async function renderProfile(userId) {
       ${u.role !== 'olheiro' ? `<div class="overall-badge"><b>${u.overall}</b><span>OVR</span></div>` : ''}
       ${mine ? `
         <div class="upload-btn" style="display:inline-block">
-          ${avatarHtml(u, 'lg')}
+          ${avatarHtml(u, 'lg', false)}
           <input type="file" accept="image/*" onchange="newProfilePhoto(this)">
-          <div style="font-size:11px;color:var(--muted);margin-top:4px">toque na foto para trocar</div>
-        </div>` : avatarHtml(u, 'lg')}
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">toque na foto para trocar</div>
+        </div>` : avatarHtml(u, 'lg', false)}
       <h3>${esc(u.name)} ${u.verified ? '✅' : ''}</h3>
       ${u.nickname ? `<div class="nick">"${esc(u.nickname)}"</div>` : ''}
       <div class="loc">${ROLES[u.role]?.emoji || ''} ${esc(u.position || ROLES[u.role]?.label || '')}${u.positions2 ? ' · também: ' + esc(u.positions2) : ''}</div>
@@ -1004,7 +1181,7 @@ async function renderProfile(userId) {
         <div class="stat"><b>${u.stats.titulos || 0}</b><span>títulos</span></div>
       </div>
     </div>` : ''}
-    ${u.scoutViews ? `<div class="section" style="text-align:center"><p>👀 <b style="color:var(--yellow)">${u.scoutViews}</b> visita(s) de olheiros neste perfil</p></div>` : ''}` : ''}
+    ${u.scoutViews ? `<div class="section" style="text-align:center"><p>👀 <b style="color:var(--gold)">${u.scoutViews}</b> visita(s) de olheiros neste perfil</p></div>` : ''}` : ''}
 
     ${mine ? `
       <div class="row2">
@@ -1054,7 +1231,7 @@ async function renderProfile(userId) {
     ${ME.isAdmin && !mine ? `<div class="section admin-moderation-card"><h4>🛡️ Moderação do Administrador</h4><p class="sub">Excluir este perfil remove posts, stories, comentários, votos e mensagens vinculadas.</p><button class="btn btn-danger" onclick="adminDeleteUserFromProfile('${u.id}', '${esc(u.name)}')">🗑️ Excluir Usuário</button></div>` : ''}
 
     ${ratings.length ? `<div class="section"><h4>⭐ Avaliações</h4>${ratings.map(r => `
-      <p style="margin-bottom:8px"><b>${esc(r.from?.name || '')}</b> — <span class="stars">${'★'.repeat(r.stars)}</span><br><span style="color:var(--muted)">${esc(r.comment)}</span></p>`).join('')}</div>` : ''}`;
+      <p style="margin-bottom:8px"><b>${esc(r.from?.name || '')}</b> — <span class="stars">${'★'.repeat(r.stars)}</span><br><span style="color:var(--text-secondary)">${esc(r.comment)}</span></p>`).join('')}</div>` : ''}`;
 }
 
 // ============================================================
@@ -1079,7 +1256,6 @@ async function drawFifaCard(u, achievements) {
   const isGK = u.role === 'goleiro' || u.position === 'Goleiro';
   const st = u.stats || {};
 
-  // fundo do card (dourado FUT)
   const g = x.createLinearGradient(0, 0, W, H);
   g.addColorStop(0, '#f8e08e'); g.addColorStop(.45, '#e8c356'); g.addColorStop(1, '#b8860b');
   x.beginPath();
@@ -1089,18 +1265,15 @@ async function drawFifaCard(u, achievements) {
   x.closePath(); x.fillStyle = g; x.fill();
   x.lineWidth = 6; x.strokeStyle = '#8a6508'; x.stroke();
 
-  // faixa Brasil
   x.fillStyle = 'rgba(10,92,54,.25)';
   x.fillRect(30, 430, W - 60, 6);
 
   const dark = '#3d2e05';
-  // OVR + posição
   x.fillStyle = dark; x.textAlign = 'left';
   x.font = '900 110px Arial'; x.fillText(u.overall || 60, 65, 175);
   x.font = '900 44px Arial'; x.fillText(POS_ABBR[u.position] || (u.position || '?').slice(0, 3).toUpperCase(), 72, 228);
   x.font = '700 26px Arial'; x.fillText((u.state || 'BR'), 78, 268);
 
-  // foto do jogador
   try {
     const img = await loadImg(u.photo || '/img/logo.png');
     x.save();
@@ -1112,19 +1285,16 @@ async function drawFifaCard(u, achievements) {
     x.lineWidth = 8; x.strokeStyle = '#8a6508'; x.stroke();
   } catch {}
 
-  // logo
   try {
     const logo = await loadImg('/img/logo.png');
     x.drawImage(logo, 60, 300, 72, 72);
   } catch {}
 
-  // nome
   x.textAlign = 'center'; x.fillStyle = dark;
   const name = (u.nickname || u.name || '').toUpperCase();
   x.font = `900 ${name.length > 14 ? 40 : 52}px Arial`;
   x.fillText(name, W / 2, 505);
 
-  // estatísticas (6, estilo FUT)
   const stats = isGK ? [
     ['JOG', st.jogos || 0], ['DEF', st.defesas || 0], ['PEN', st.penaltisDefendidos || 0],
     ['SG', st.jogosSemSofrerGol || 0], ['TIT', st.titulos || 0], ['SEG', u.followers || 0]
@@ -1142,10 +1312,8 @@ async function drawFifaCard(u, achievements) {
     x.font = '700 26px Arial'; x.fillStyle = '#6b5104';
     x.fillText(label, sx + 105, sy);
   });
-  // divisor central
   x.fillStyle = 'rgba(61,46,5,.35)'; x.fillRect(W / 2 - 1, 560, 2, 180);
 
-  // rodapé
   x.textAlign = 'center'; x.font = '700 22px Arial'; x.fillStyle = '#6b5104';
   const medals = (achievements || []).filter(a => a.earned).slice(0, 5).map(a => a.emoji).join(' ');
   x.fillText(`${medals}  VITRINE FC  ⚽`, W / 2, 815);
@@ -1285,7 +1453,7 @@ async function adminDeleteUserFromProfile(id, name) {
   try { await api('/admin/users/' + id, { method:'DELETE' }); toast('Usuário excluído e dados removidos.'); showTab('admin'); switchAdminSubTab('users'); } catch(e) { toast('Erro: ' + e.message); }
 }
 
-// ---------- Editar perfil ----------
+// ---------- Editar Perfil ----------
 function renderEditProfile(first = false) {
   if (!$('#content')) { renderShell(); }
   const c = $('#content');
@@ -1378,7 +1546,7 @@ async function renderConvs() {
       <button class="on" onclick="showTab('chat')">💬 Conversas</button>
       <button onclick="showTab('props')">🤝 Propostas</button>
     </div>
-    <p class="sub">Todas as suas conversas — olheiros, jogadores, técnicos e árbitros.</p>
+    <p class="sub">Todas as suas conversas — olheiros, jogadores, técnicos e árbitros. Toque na foto para ver o perfil!</p>
     <div id="convs"></div>`;
   const load = async () => {
     const convs = await api('/conversations');
@@ -1386,12 +1554,12 @@ async function renderConvs() {
     if (!el) return;
     el.innerHTML = convs.length ? convs.map(cv => `
       <div class="conv" onclick="openChat('${cv.user.id}', '${esc(cv.user.name)}')" style="cursor:pointer">
-        ${avatarHtml(cv.user)}
+        ${avatarHtml(cv.user, 'md')}
         <div class="info">
-          <b>${esc(cv.user.name)} ${cv.unread ? `<span class="badge" style="position:static">${cv.unread}</span>` : ''}</b>
+          <b>${esc(cv.user.name)} ${cv.user.verified ? '✅' : ''} ${cv.unread ? `<span class="badge" style="position:static">${cv.unread}</span>` : ''}</b>
           <span>${esc(cv.lastMessage.text)}</span>
         </div>
-        <span style="font-size:11px;color:var(--muted)">${timeAgo(cv.lastMessage.createdAt)}</span>
+        <span style="font-size:11px;color:var(--text-muted)">${timeAgo(cv.lastMessage.createdAt)}</span>
       </div>`).join('')
       : '<div class="empty"><span class="big">💬</span>Nenhuma conversa ainda.<br>Encontre um talento na Busca e toque em "Conversar"!</div>';
   };
@@ -1405,9 +1573,15 @@ async function openChat(otherId, otherName) {
   document.querySelectorAll('.nav button').forEach(b => b.classList.remove('on'));
   document.getElementById('nav-chat')?.classList.add('on');
   const c = $('#content');
+  const partner = (window._events || []).flatMap(e => [e.creator, ...(e.participantUsers||[])]).find(u => u?.id === otherId) || { id: otherId, name: otherName };
+  
   c.innerHTML = `
     <button class="back" onclick="showTab('chat')">‹ Conversas</button>
-    <h2 style="font-size:18px">💬 ${esc(otherName)}</h2>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;cursor:pointer" onclick="renderProfile('${otherId}')">
+      ${avatarHtml(partner, 'sm')}
+      <h2 style="font-size:18px;margin:0">💬 ${esc(otherName)}</h2>
+      <button class="btn btn-outline btn-sm" style="margin-left:auto;padding:3px 8px;font-size:11px">👤 Perfil</button>
+    </div>
     <div class="chat-box">
       <div class="chat-msgs" id="chat-msgs"></div>
       <div class="chat-input">
@@ -1479,27 +1653,43 @@ async function renderProps() {
       <button onclick="showTab('chat')">💬 Conversas</button>
       <button class="on" onclick="showTab('props')">🤝 Propostas</button>
     </div>
-    <p class="sub">Contratações e convites para jogos.</p>
+    <p class="sub">Contratações e convites para jogos. Toque na foto ou no botão "Ver Perfil" para observar o jogador!</p>
     ${props.length ? props.map(p => {
       const received = p.toId === ME.id;
       const other = received ? p.from : p.to;
       return `
       <div class="prop">
         <div class="top">
-          <b>${received ? '📥 De' : '📤 Para'}: ${esc(other?.name || '?')}</b>
+          <div style="display:flex;align-items:center;gap:10px;cursor:pointer" onclick="renderProfile('${other?.id}')">
+            ${avatarHtml(other, 'md')}
+            <div>
+              <b>${received ? '📥 De' : '📤 Para'}: ${esc(other?.name || '?')} ${other?.verified ? '✅' : ''}</b>
+              <div style="font-size:11.5px;color:var(--text-secondary)">${ROLES[other?.role]?.emoji || ''} ${esc(other?.position || '')} · OVR <span class="ovr-mini">${other?.overall || 60}</span></div>
+            </div>
+          </div>
           <span class="status ${p.status}">${p.status.toUpperCase()}</span>
         </div>
+        
+        ${p.event ? `<div class="pill green" style="margin-bottom:6px">⚽ Jogo: ${esc(p.event.title)}</div>` : ''}
         <span class="pill">${p.type === 'freela' ? '⚡ Jogo avulso' : '📋 Contratação'}</span>
         <p>${esc(p.message || 'Sem mensagem.')}</p>
+
+        <div class="row2 mt">
+          <button class="btn btn-outline btn-sm" onclick="renderProfile('${other?.id}')">
+            👤 Ver Perfil
+          </button>
+          <button class="btn btn-green btn-sm" onclick="openChat('${other?.id}', '${esc(other?.name || '')}')">
+            💬 Conversar
+          </button>
+        </div>
+
         ${received && p.status === 'pendente' ? `
-          <div class="row">
-            <button class="btn btn-primary btn-sm" onclick="answerProp('${p.id}', 'aceita')">✅ Aceitar</button>
+          <div class="row2 mt" style="margin-top:8px">
+            <button class="btn btn-primary btn-sm" onclick="answerProp('${p.id}', 'aceita')">✅ Aceitar Proposta</button>
             <button class="btn btn-danger btn-sm" onclick="answerProp('${p.id}', 'recusada')">❌ Recusar</button>
-            <button class="btn btn-green btn-sm" onclick="openChat('${other.id}', '${esc(other.name)}')">💬</button>
-          </div>` : `
-          <button class="btn btn-green btn-sm" onclick="openChat('${other.id}', '${esc(other.name)}')">💬 Conversar</button>`}
+          </div>` : ''}
       </div>`;
-    }).join('') : '<div class="empty"><span class="big">🤝</span>Nenhuma proposta ainda.<br>Olheiros: busque talentos e envie propostas!<br>Jogadores: capriche no perfil e nos vídeos!</div>'}`;
+    }).join('') : '<div class="empty"><span class="big">🤝</span>Nenhuma proposta ainda.<br>Olheiros e organizadores: monte seus jogos e envie propostas!<br>Jogadores: capriche no perfil e nos vídeos!</div>'}`;
 }
 async function answerProp(id, status) {
   await api('/proposals/' + id, { method: 'PUT', body: { status } });
@@ -1596,7 +1786,7 @@ async function renderAdmin() {
         <h2>Painel do Administrador</h2>
         <p class="sub">Acesso restrito para administradores do Vitrine FC.</p>
         <div class="card" style="margin-top:20px;text-align:left">
-          <p style="font-size:13.5px;color:var(--muted);line-height:1.5">
+          <p style="font-size:13.5px;color:var(--text-secondary);line-height:1.5">
             Você está conectado como <b>${esc(ME.name)}</b> (${esc(ME.email)}).<br><br>
             Ative o modo administrador nesta conta para gerenciar usuários, posts, eventos e stories.
           </p>
@@ -1696,8 +1886,8 @@ async function renderAdminOverview(c) {
       </div>
     </div>
 
-    <div class="card" style="margin-bottom:14px">
-      <h4 style="margin-bottom:10px;color:var(--yellow);font-size:14px">⚡ Atalhos de Gerenciamento</h4>
+    <div class="section" style="margin-bottom:14px">
+      <h4 style="margin-bottom:10px;color:var(--gold);font-size:14px">⚡ Atalhos de Gerenciamento</h4>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <button class="btn btn-outline btn-sm" onclick="switchAdminSubTab('users')">👥 Gerenciar Usuários</button>
         <button class="btn btn-outline btn-sm" onclick="switchAdminSubTab('posts')">📸 Gerenciar Posts</button>
@@ -1707,9 +1897,9 @@ async function renderAdminOverview(c) {
       <button class="btn btn-danger btn-sm mt" style="width:100%" onclick="adminPurgeExpiredStories()">🧹 Limpar stories expirados (>24h)</button>
     </div>
 
-    <div class="card">
-      <h4 style="margin-bottom:8px;color:var(--yellow);font-size:14px">⚙️ Status do Sistema</h4>
-      <p style="font-size:12.5px;color:var(--muted);line-height:1.6">
+    <div class="section">
+      <h4 style="margin-bottom:8px;color:var(--gold);font-size:14px">⚙️ Status do Sistema</h4>
+      <p style="font-size:12.5px;color:var(--text-secondary);line-height:1.6">
         • <b>Base de dados:</b> Zerada sem contas demo (pronta para uso real)<br>
         • <b>Separação de categorias:</b> 🏆 Profissional × 🎉 Pelada ativa<br>
         • <b>Total de mensagens no chat:</b> ${s.messages.total}<br>
@@ -1789,7 +1979,7 @@ function drawAdminUsersList() {
             </div>
           </div>
         </div>
-        <div style="font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.5">
+        <div style="font-size:11.5px;color:var(--text-secondary);margin-top:8px;line-height:1.5">
           ${u.city ? `📍 ${esc(u.city)}${u.state ? '/' + esc(u.state) : ''} · ` : ''}
           Cadastrado ${timeAgo(u.createdAt)} · <b>${u.postsCount || 0}</b> post(s) · <b>${u.storiesCount || 0}</b> story(ies) · <b>${u.eventsCount || 0}</b> evento(s) · OVR <b>${u.overall}</b>
         </div>
@@ -1902,9 +2092,9 @@ function drawAdminPostsList() {
             : `<img src="${esc(p.url)}" alt="">`}
         </div>
 
-        ${p.caption ? `<p style="font-size:13px;margin-top:8px;line-height:1.4">${esc(p.caption)}</p>` : '<p style="font-size:12px;color:var(--muted);margin-top:6px"><i>Sem legenda</i></p>'}
+        ${p.caption ? `<p style="font-size:13px;margin-top:8px;line-height:1.4">${esc(p.caption)}</p>` : '<p style="font-size:12px;color:var(--text-secondary);margin-top:6px"><i>Sem legenda</i></p>'}
 
-        <div style="font-size:11.5px;color:var(--muted);margin-top:6px">
+        <div style="font-size:11.5px;color:var(--text-secondary);margin-top:6px">
           💛 <b>${p.likes.length}</b> curtida(s) · 💬 <b>${p.comments.length}</b> comentário(s) · ⭐ <b>${p.starsAvg ?? '—'}</b> (${p.starsCount || 0} notas)
         </div>
 
@@ -1952,8 +2142,8 @@ async function adminOpenCommentsModal(postId) {
           ${post.comments.length ? post.comments.map(c => `
             <div class="modal-admin-item">
               <div style="flex:1;min-width:0;padding-right:8px">
-                <b style="cursor:pointer;color:var(--yellow-soft)" onclick="renderProfile('${c.user?.id}')">${esc(c.user?.name || '?')}</b>: ${esc(c.text)}
-                <div style="font-size:10.5px;color:var(--muted);margin-top:2px">${timeAgo(c.createdAt)}</div>
+                <b style="cursor:pointer;color:var(--gold-soft)" onclick="renderProfile('${c.user?.id}')">${esc(c.user?.name || '?')}</b>: ${esc(c.text)}
+                <div style="font-size:10.5px;color:var(--text-secondary);margin-top:2px">${timeAgo(c.createdAt)}</div>
               </div>
               <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="adminDeleteComment('${postId}', '${c.id}')">🗑️</button>
             </div>`).join('') : '<p class="empty" style="padding:16px 0">Nenhum comentário neste post.</p>'}
@@ -2044,11 +2234,11 @@ function drawAdminEventsList() {
           </div>
         </div>
 
-        <div style="font-size:12.5px;color:var(--text);margin-top:8px;line-height:1.5">
+        <div style="font-size:12.5px;color:var(--text-primary);margin-top:8px;line-height:1.5">
           📍 <b>${esc(e.place || 'Local não especificado')}</b> — ${esc(e.city)}/${esc(e.state || '')}<br>
           💰 Custo: <b>${esc(e.fee || 'Gratuito')}</b> · 👤 Org: <b>${esc(e.creator?.name || '?')}</b><br>
           🙋 <b>${e.participants.length}</b> participante(s) confirmado(s)
-          ${e.description ? `<p style="font-size:12px;color:var(--muted);margin-top:6px">${esc(e.description)}</p>` : ''}
+          ${e.description ? `<p style="font-size:12px;color:var(--text-secondary);margin-top:6px">${esc(e.description)}</p>` : ''}
         </div>
 
         <div class="admin-actions">
@@ -2084,7 +2274,7 @@ function adminOpenParticipantsModal(eventId) {
               ${avatarHtml(u, 'sm')}
               <div>
                 <b>${esc(u.name)}</b>
-                <div style="font-size:11px;color:var(--muted)">${ROLES[u.role]?.emoji || ''} ${esc(u.position || ROLES[u.role]?.label || '')}</div>
+                <div style="font-size:11px;color:var(--text-secondary)">${ROLES[u.role]?.emoji || ''} ${esc(u.position || ROLES[u.role]?.label || '')}</div>
               </div>
             </div>
             <span class="badge-role">Ver perfil</span>
@@ -2159,7 +2349,7 @@ function drawAdminStoriesList() {
 
         ${s.caption ? `<p style="font-size:13px;margin-top:8px;line-height:1.4">${esc(s.caption)}</p>` : ''}
 
-        <div style="font-size:11.5px;color:var(--muted);margin-top:6px">
+        <div style="font-size:11.5px;color:var(--text-secondary);margin-top:6px">
           ⏳ Expira em <b>${remHours}h ${remMin}min</b> · 👀 <b>${s.viewersCount}</b> visualização(ões)
         </div>
 
@@ -2197,7 +2387,7 @@ function adminOpenViewersModal(storyId) {
               ${avatarHtml(u, 'sm')}
               <div>
                 <b>${esc(u.name)}</b>
-                <div style="font-size:11px;color:var(--muted)">${ROLES[u.role]?.emoji || ''} ${esc(u.position || ROLES[u.role]?.label || '')}</div>
+                <div style="font-size:11px;color:var(--text-secondary)">${ROLES[u.role]?.emoji || ''} ${esc(u.position || ROLES[u.role]?.label || '')}</div>
               </div>
             </div>
             <span class="badge-role">Ver perfil</span>
@@ -2226,12 +2416,10 @@ async function adminPurgeExpiredStories() {
 // INÍCIO
 // ============================================================
 (async () => {
-  // registra o service worker (app instalável no celular)
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
   if (TOKEN) {
     try {
       await enterApp();
-      // Link compartilhado: /?perfil=ID abre direto o perfil
       const pid = new URLSearchParams(location.search).get('perfil');
       if (pid) { history.replaceState({}, '', '/'); renderProfile(pid); }
       return;

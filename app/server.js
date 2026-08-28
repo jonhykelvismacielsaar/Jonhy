@@ -690,11 +690,17 @@ app.delete('/api/stories/:id', auth, (req, res) => {
 // PENEIRAS E JOGOS ABERTOS 📍 (com mapa)
 // ============================================================
 function publicEvent(ev, meId) {
+  const proposals = db.proposals.filter(p => p.eventId === ev.id);
+  const myProposal = proposals.find(p => p.fromId === meId);
+  const isOwner = ev.userId === meId || (db.users.find(u => u.id === meId)?.isAdmin);
   return {
     ...ev,
     creator: publicUser(db.users.find(u => u.id === ev.userId)),
     joined: ev.participants.includes(meId),
-    participantUsers: ev.participants.slice(0, 20).map(id => publicUser(db.users.find(u => u.id === id))).filter(Boolean)
+    participantUsers: ev.participants.slice(0, 30).map(id => publicUser(db.users.find(u => u.id === id))).filter(Boolean),
+    myProposal: myProposal ? { id: myProposal.id, status: myProposal.status, message: myProposal.message } : null,
+    proposalsCount: proposals.length,
+    proposals: isOwner ? proposals.map(p => ({ ...p, from: publicUser(db.users.find(u => u.id === p.fromId)) })) : []
   };
 }
 
@@ -782,20 +788,29 @@ app.get('/api/messages/:otherId', auth, (req, res) => {
 
 // ---- Propostas ----
 app.post('/api/proposals', auth, (req, res) => {
-  const { toId, type, message } = req.body; // type: contratacao | freela
-  if (!toId) return res.status(400).json({ error: 'Destinatário obrigatório.' });
-  const target = db.users.find(u => u.id === toId);
+  const { toId, type, message, eventId } = req.body; // type: contratacao | freela
+  let targetId = toId;
+  let ev = null;
+  if (eventId) {
+    ev = db.events.find(e => e.id === eventId);
+    if (ev && !targetId) targetId = ev.userId;
+  }
+  if (!targetId) return res.status(400).json({ error: 'Destinatário obrigatório.' });
+  const target = db.users.find(u => u.id === targetId);
   if (!target) return res.status(404).json({ error: 'Usuário não encontrado.' });
+  
   const prop = {
-    id: uid(), fromId: req.user.id, toId, type: type || 'contratacao',
+    id: uid(), fromId: req.user.id, toId: targetId, eventId: eventId || null, type: type || 'freela',
     message: message || '', status: 'pendente', createdAt: Date.now()
   };
   db.proposals.push(prop);
-  const label = prop.type === 'freela' ? 'te chamou para um jogo (freela)! ⚽' : 'quer te contratar! 📋';
-  notify(toId, `🤝 ${req.user.name} ${label}`);
+  const label = ev
+    ? `enviou uma proposta para o seu jogo "${ev.title}"! ⚽`
+    : (prop.type === 'freela' ? 'te chamou para um jogo (freela)! ⚽' : 'quer te contratar! 📋');
+  notify(targetId, `🤝 ${req.user.name} ${label}`);
   db.messages.push({
-    id: uid(), fromId: req.user.id, toId,
-    text: `📩 PROPOSTA (${prop.type === 'freela' ? 'jogo avulso' : 'contratação'}): ${prop.message || 'Tenho interesse em você!'}`,
+    id: uid(), fromId: req.user.id, toId: targetId,
+    text: `📩 PROPOSTA ${ev ? 'PARA O JOGO "' + ev.title + '"' : '(' + (prop.type === 'freela' ? 'jogo avulso' : 'contratação') + ')'}: ${prop.message || 'Tenho interesse em jogar no seu time!'}`,
     read: false, createdAt: Date.now()
   });
   saveDB();
@@ -807,6 +822,7 @@ app.get('/api/proposals', auth, (req, res) => {
     .sort((a, b) => b.createdAt - a.createdAt)
     .map(p => ({
       ...p,
+      event: p.eventId ? db.events.find(e => e.id === p.eventId) : null,
       from: publicUser(db.users.find(u => u.id === p.fromId)),
       to: publicUser(db.users.find(u => u.id === p.toId))
     }));
@@ -819,9 +835,21 @@ app.put('/api/proposals/:id', auth, (req, res) => {
   const { status } = req.body; // aceita | recusada
   if (!['aceita', 'recusada'].includes(status)) return res.status(400).json({ error: 'Status inválido.' });
   prop.status = status;
+  
+  let eventText = '';
+  if (prop.eventId) {
+    const ev = db.events.find(e => e.id === prop.eventId);
+    if (ev) {
+      eventText = ` para o jogo "${ev.title}"`;
+      if (status === 'aceita' && !ev.participants.includes(prop.fromId)) {
+        ev.participants.push(prop.fromId);
+      }
+    }
+  }
+
   notify(prop.fromId, status === 'aceita'
-    ? `✅ ${req.user.name} ACEITOU sua proposta! Combine os detalhes no chat.`
-    : `❌ ${req.user.name} recusou sua proposta.`);
+    ? `✅ ${req.user.name} ACEITOU sua proposta${eventText}! Você foi escalado no time. Combine no chat.`
+    : `❌ ${req.user.name} recusou sua proposta${eventText}.`);
   saveDB();
   res.json(prop);
 });

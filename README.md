@@ -45,6 +45,7 @@ Clique neste botão:
 3. No painel do Render → seu serviço **vitrinefc** → **Environment** → adicione:
    - `DB_GITHUB_TOKEN` = o token que você copiou
    - `DB_GITHUB_REPO` = `seu-usuario/vitrinefc-dados`
+   *(Alternativamente: acesse a aba **🛡️ Admin** no próprio app, faça login como `admin@vitrinefc.com` e digite o Token e Repositório na caixa **Sincronização em Nuvem**).*
 4. Salve. O servidor reinicia e a partir daí **todo cadastro, post, foto e
    vídeo (até 20MB) é salvo no GitHub automaticamente** e restaurado sempre
    que o servidor reiniciar. Grátis para sempre. ✅

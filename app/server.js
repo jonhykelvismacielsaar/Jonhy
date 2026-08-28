@@ -193,30 +193,49 @@ function ensureAdminUser() {
 // Assim o site nunca começa a atender com o banco vazio nem sobrescreve o backup.
 
 // ============================================================
-// BACKUP AUTOMÁTICO NO GITHUB
+// BACKUP AUTOMÁTICO NO GITHUB (CENTRAL DE DADOS NA NUVEM)
 // ============================================================
-const GH_TOKEN = process.env.DB_GITHUB_TOKEN;
-const GH_REPO = process.env.DB_GITHUB_REPO;
-const GH_ON = !!(GH_TOKEN && GH_REPO);
+const CLOUD_CONFIG_FILE = path.join(DATA_DIR, 'cloud-config.json');
+
+function ghGetConfig() {
+  let token = process.env.DB_GITHUB_TOKEN || '';
+  let repo = process.env.DB_GITHUB_REPO || '';
+
+  if ((!token || !repo) && fs.existsSync(CLOUD_CONFIG_FILE)) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8'));
+      if (cfg && typeof cfg === 'object') {
+        if (!token && cfg.token) token = cfg.token;
+        if (!repo && cfg.repo) repo = cfg.repo;
+      }
+    } catch (e) {}
+  }
+  token = String(token || '').trim();
+  repo = String(repo || '').trim();
+  return { token, repo, enabled: !!(token && repo) };
+}
+
 let ghDbSha = null;
 let ghSaveTimer = null;
 let ghSaving = false;
 // 🔒 TRAVA DE SEGURANÇA: só é liberada quando sabemos com certeza o que existe
 // na nuvem (backup restaurado OU confirmado que ainda não existe backup).
-// Enquanto estiver falsa, NADA é enviado ao GitHub — era exatamente assim que o
-// banco era zerado: o servidor subia vazio, salvava por cima do backup bom e
-// todos os cadastros sumiam.
+// Enquanto estiver falsa, NADA é enviado ao GitHub.
 let ghCanSave = false;
 let ghLastCounts = null;
 let ghRestoreTries = 0;
 
-const BOOT_STATUS = { ready: false, source: 'local', cloud: GH_ON ? 'conectando' : 'desligado', message: '' };
+const BOOT_STATUS = { ready: false, source: 'local', cloud: ghGetConfig().enabled ? 'conectando' : 'desligado', message: '' };
 
 async function ghApi(method, urlPath, body, raw) {
-  const r = await fetch(`https://api.github.com/repos/${GH_REPO}/${urlPath}`, {
+  const cfg = ghGetConfig();
+  if (!cfg.enabled) {
+    throw new Error('Sincronização na nuvem desligada (falta DB_GITHUB_TOKEN ou DB_GITHUB_REPO).');
+  }
+  const r = await fetch(`https://api.github.com/repos/${cfg.repo}/${urlPath}`, {
     method,
     headers: {
-      'Authorization': `Bearer ${GH_TOKEN}`,
+      'Authorization': `Bearer ${cfg.token}`,
       'Accept': raw ? 'application/vnd.github.raw' : 'application/vnd.github+json',
       'User-Agent': 'vitrinefc',
       ...(body ? { 'Content-Type': 'application/json' } : {})
@@ -227,9 +246,10 @@ async function ghApi(method, urlPath, body, raw) {
 }
 
 async function ghLoadDB() {
-  if (!GH_ON) {
+  const cfg = ghGetConfig();
+  if (!cfg.enabled) {
     BOOT_STATUS.cloud = 'desligado';
-    return;
+    return { ok: false, error: 'Token ou repositório não configurados' };
   }
   try {
     const meta = await ghApi('GET', 'contents/db.json');
@@ -247,8 +267,7 @@ async function ghLoadDB() {
       const localCounts = dbCounts(db);
       const cloudCounts = dbCounts(cloud);
 
-      // Se por algum motivo o arquivo local tiver MAIS dados que a nuvem
-      // (ex.: backup ficou para trás), o local vence e é reenviado.
+      // Se por algum motivo o arquivo local tiver MAIS dados que a nuvem, o local vence e é reenviado.
       if (countsTotal(localCounts) > countsTotal(cloudCounts)) {
         console.log('☁️  Backup da nuvem está atrás do arquivo local — mantendo o local e reenviando.',
           'nuvem:', JSON.stringify(cloudCounts), 'local:', JSON.stringify(localCounts));
@@ -257,14 +276,14 @@ async function ghLoadDB() {
         db = cloud;
         normalizeDB();
         BOOT_STATUS.source = 'nuvem';
-        console.log('☁️  Banco restaurado do GitHub:', GH_REPO, JSON.stringify(dbCounts(db)));
+        console.log('☁️  Banco restaurado do GitHub:', cfg.repo, JSON.stringify(dbCounts(db)));
       }
 
       ghDbSha = j.sha;
       ghLastCounts = dbCounts(db);
       ghCanSave = true;
       BOOT_STATUS.cloud = 'ativo';
-      return;
+      return { ok: true, source: BOOT_STATUS.source, counts: dbCounts(db) };
     }
 
     if (meta.status === 404) {
@@ -274,29 +293,30 @@ async function ghLoadDB() {
       ghCanSave = true;
       BOOT_STATUS.cloud = 'ativo (primeiro backup pendente)';
       console.log('☁️  GitHub configurado — primeiro backup será criado ao salvar.');
-      return;
+      await ghSaveDB();
+      return { ok: true, source: 'local (criou primeiro backup na nuvem)', counts: dbCounts(db) };
     }
 
     throw new Error('HTTP ' + meta.status + ' — verifique DB_GITHUB_TOKEN e DB_GITHUB_REPO');
   } catch (e) {
-    // 🔒 Falhou (rede, token expirado, limite da API…): NÃO liberamos a escrita.
-    // Melhor ficar sem backup por alguns minutos do que apagar o backup bom.
     ghCanSave = false;
     BOOT_STATUS.cloud = 'erro: ' + e.message;
     console.error('☁️  Erro ao carregar backup do GitHub:', e.message);
-    console.error('☁️  Backup TRAVADO por segurança (nada será sobrescrito). Tentando de novo em 60s…');
     if (ghRestoreTries++ < 30) setTimeout(ghLoadDB, 60000);
+    return { ok: false, error: e.message };
   }
 }
 
 function ghScheduleSave() {
-  if (!GH_ON) return;
+  const cfg = ghGetConfig();
+  if (!cfg.enabled) return;
   clearTimeout(ghSaveTimer);
-  ghSaveTimer = setTimeout(ghSaveDB, 4000);
+  ghSaveTimer = setTimeout(ghSaveDB, 3000);
 }
 
 async function ghSaveDB() {
-  if (!GH_ON || ghSaving) { if (ghSaving) ghScheduleSave(); return; }
+  const cfg = ghGetConfig();
+  if (!cfg.enabled || ghSaving) { if (ghSaving) ghScheduleSave(); return; }
 
   // 🔒 Trava: nunca sobrescrever o backup antes de saber o que há na nuvem.
   if (!ghCanSave) {
@@ -305,7 +325,6 @@ async function ghSaveDB() {
   }
 
   // 🔒 Proteção anti-zeramento: se o banco encolheu de forma absurda
-  // (ex.: caiu para zero usuários), algo deu errado — não sobrescreve.
   const now = dbCounts(db);
   if (ghLastCounts && now.users === 0 && ghLastCounts.users > 0) {
     console.error('☁️  BACKUP BLOQUEADO: banco ficou sem usuários (antes:', ghLastCounts.users + ').');
@@ -331,9 +350,10 @@ async function ghSaveDB() {
     if (r.ok) {
       ghDbSha = (await r.json()).content.sha;
       ghLastCounts = now;
+      BOOT_STATUS.cloud = 'ativo';
     } else {
       console.error('☁️  Backup falhou:', r.status, (await r.text()).slice(0, 120));
-      ghScheduleSave(); // tenta de novo em vez de perder a alteração
+      ghScheduleSave();
     }
   } catch (e) {
     console.error('☁️  Backup falhou:', e.message);
@@ -342,8 +362,40 @@ async function ghSaveDB() {
   ghSaving = false;
 }
 
+// Checa periodicamente se outro dispositivo/servidor atualizou a nuvem
+async function checkCloudUpdates() {
+  const cfg = ghGetConfig();
+  if (!cfg.enabled || !ghCanSave || ghSaving) return;
+  try {
+    const meta = await ghApi('GET', 'contents/db.json');
+    if (meta.status === 200) {
+      const j = await meta.json();
+      if (j.sha && j.sha !== ghDbSha) {
+        console.log('☁️ Detectada alteração na nuvem (outro dispositivo/Wi-Fi salvou). Sincronizando...');
+        const rawRes = await ghApi('GET', 'contents/db.json', null, true);
+        if (rawRes.ok) {
+          const text = await rawRes.text();
+          const cloud = JSON.parse(text);
+          if (cloud && Array.isArray(cloud.users)) {
+            db = cloud;
+            normalizeDB();
+            ghDbSha = j.sha;
+            ghLastCounts = dbCounts(db);
+            const tmp = DB_FILE + '.tmp';
+            fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
+            fs.renameSync(tmp, DB_FILE);
+            console.log('✅ Banco local sincronizado com a nuvem:', JSON.stringify(dbCounts(db)));
+          }
+        }
+      }
+    }
+  } catch (e) {}
+}
+setInterval(checkCloudUpdates, 30000);
+
 async function ghSaveUpload(filename) {
-  if (!GH_ON) return;
+  const cfg = ghGetConfig();
+  if (!cfg.enabled) return;
   try {
     const fp = path.join(UPLOAD_DIR, filename);
     const size = fs.statSync(fp).size;
@@ -356,7 +408,8 @@ async function ghSaveUpload(filename) {
 }
 
 async function ghFetchUpload(filename) {
-  if (!GH_ON) return false;
+  const cfg = ghGetConfig();
+  if (!cfg.enabled) return false;
   try {
     const r = await ghApi('GET', `contents/uploads/${encodeURIComponent(filename)}`, null, true);
     if (!r.ok) return false;
@@ -395,6 +448,7 @@ app.use('/uploads', express.static(UPLOAD_DIR));
 // Diagnóstico: mostra se o backup na nuvem está funcionando de verdade.
 // Útil para descobrir por que dados sumiriam. Acesse /api/health
 app.get('/api/health', (req, res) => {
+  const cfg = ghGetConfig();
   res.json({
     ok: true,
     ready: BOOT_STATUS.ready,
@@ -402,7 +456,7 @@ app.get('/api/health', (req, res) => {
     backupNuvem: BOOT_STATUS.cloud,
     backupLiberado: ghCanSave,
     conteudo: dbCounts(db),
-    aviso: GH_ON ? null : 'Backup na nuvem desligado: em hospedagem grátis os dados somem a cada reinício. Configure DB_GITHUB_TOKEN e DB_GITHUB_REPO.'
+    aviso: cfg.enabled ? null : 'Backup na nuvem desligado: em hospedagem grátis os dados somem a cada reinício. Configure DB_GITHUB_TOKEN e DB_GITHUB_REPO.'
   });
 });
 
@@ -1422,6 +1476,104 @@ app.get('/api/trending', auth, (req, res) => {
 // PAINEL DO ADMINISTRADOR 🛡️
 // ============================================================
 
+// ☁️ Gerenciamento de Sincronização em Nuvem (Admin)
+app.get('/api/admin/cloud-status', adminAuth, (req, res) => {
+  const cfg = ghGetConfig();
+  res.json({
+    enabled: cfg.enabled,
+    repo: cfg.repo || '',
+    hasToken: !!cfg.token,
+    bootStatus: BOOT_STATUS,
+    canSave: ghCanSave,
+    dbCounts: dbCounts(db)
+  });
+});
+
+app.post('/api/admin/cloud-config', adminAuth, async (req, res) => {
+  const token = String(req.body.token || '').trim();
+  const repo = String(req.body.repo || '').trim();
+
+  if (!token || !repo) {
+    return res.status(400).json({ error: 'Informe o Token e o Repositório do GitHub (ex: usuario/vitrinefc-dados).' });
+  }
+
+  try {
+    const testRes = await fetch(`https://api.github.com/repos/${repo}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github+json',
+        'User-Agent': 'vitrinefc'
+      }
+    });
+
+    if (testRes.status === 401 || testRes.status === 403) {
+      return res.status(400).json({ error: 'Token do GitHub inválido ou sem permissão de acesso ao repositório.' });
+    }
+    if (testRes.status === 404) {
+      return res.status(400).json({ error: `Repositório "${repo}" não foi encontrado. Verifique o usuário e o nome do repositório.` });
+    }
+    if (!testRes.ok) {
+      return res.status(400).json({ error: `Erro HTTP ${testRes.status} ao validar repositório no GitHub.` });
+    }
+
+    fs.writeFileSync(CLOUD_CONFIG_FILE, JSON.stringify({ token, repo }, null, 2));
+
+    const result = await ghLoadDB();
+    if (!result.ok) {
+      return res.status(400).json({ error: 'Credenciais válidas, mas erro ao sincronizar o banco: ' + result.error });
+    }
+
+    if (ghCanSave) {
+      await ghSaveDB();
+    }
+
+    res.json({
+      ok: true,
+      message: 'Sincronização em Nuvem ATIVADA com sucesso! Todos os dados estão compartilhados.',
+      counts: dbCounts(db)
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Falha ao conectar com o GitHub: ' + e.message });
+  }
+});
+
+app.post('/api/admin/cloud-sync-now', adminAuth, async (req, res) => {
+  const cfg = ghGetConfig();
+  if (!cfg.enabled) {
+    return res.status(400).json({ error: 'Sincronização em nuvem não está configurada.' });
+  }
+  try {
+    await ghLoadDB();
+    savePending = true;
+    await ghSaveDB();
+    res.json({ ok: true, message: 'Sincronização com a nuvem realizada com sucesso!', counts: dbCounts(db) });
+  } catch (e) {
+    res.status(500).json({ error: 'Erro ao sincronizar: ' + e.message });
+  }
+});
+
+app.get('/api/admin/backup-download', adminAuth, (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="vitrinefc-backup-${Date.now()}.json"`);
+  res.send(JSON.stringify(db, null, 2));
+});
+
+app.post('/api/admin/backup-upload', adminAuth, (req, res) => {
+  const newDb = req.body;
+  if (!newDb || typeof newDb !== 'object' || !Array.isArray(newDb.users)) {
+    return res.status(400).json({ error: 'Arquivo de backup inválido. É necessário ser um JSON válido do Vitrine FC.' });
+  }
+  try {
+    db = newDb;
+    normalizeDB();
+    ensureAdminUser();
+    flushDB();
+    res.json({ ok: true, message: 'Banco de dados restaurado com sucesso!', counts: dbCounts(db) });
+  } catch (e) {
+    res.status(500).json({ error: 'Erro ao aplicar o backup: ' + e.message });
+  }
+});
+
 // Desabilitar reivindicação de admin aberta
 app.post('/api/admin/claim', auth, (req, res) => {
   return res.status(403).json({ error: 'Operação desativada. Apenas administradores existentes podem gerenciar privilégios.' });
@@ -1642,7 +1794,7 @@ async function boot() {
     console.log(`📱 Abra no navegador: http://localhost:${PORT}`);
     console.log(`💾 Dados em: ${DB_FILE}`);
     console.log(`📦 Conteúdo: ${JSON.stringify(dbCounts(db))} | origem: ${BOOT_STATUS.source} | nuvem: ${BOOT_STATUS.cloud}`);
-    if (!GH_ON) {
+    if (!ghGetConfig().enabled) {
       console.log('⚠️  BACKUP NA NUVEM DESLIGADO! Em hospedagens de plano grátis o disco é apagado');
       console.log('⚠️  a cada reinício/deploy e TODOS os cadastros somem. Configure as variáveis');
       console.log('⚠️  DB_GITHUB_TOKEN e DB_GITHUB_REPO para nunca mais perder os dados.');

@@ -3607,9 +3607,48 @@ async function loadAdminSubView() {
 
 // ---- Sub-aba 1: Visão Geral ----
 async function renderAdminOverview(c) {
-  _adminStats = await api('/admin/stats');
-  const s = _adminStats;
+  const [s, cloudStatus] = await Promise.all([
+    api('/admin/stats'),
+    api('/admin/cloud-status').catch(() => ({ enabled: false }))
+  ]);
+  _adminStats = s;
+
+  const cloudBox = cloudStatus.enabled ? `
+    <div class="section" style="border-left:4px solid var(--neon-green)">
+      <h4>🟢 Sincronização em Nuvem ATIVA</h4>
+      <p class="sub" style="margin-bottom:10px">Seus dados e cadastros estão salvos na nuvem (<b>${esc(cloudStatus.repo)}</b>) e compartilhados em todos os Wi-Fi e celulares.</p>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">
+        Status: <b>${esc(cloudStatus.bootStatus?.cloud || 'Ativo')}</b> · Origem dos dados: <b>${esc(cloudStatus.bootStatus?.source || 'nuvem')}</b>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-green btn-sm" onclick="adminSyncCloudNow()">🔄 Sincronizar Agora com a Nuvem</button>
+        <button class="btn btn-outline btn-sm" onclick="adminDownloadBackup()">⬇️ Baixar Backup JSON</button>
+        <button class="btn btn-outline btn-sm" onclick="adminUploadBackupPrompt()">⬆️ Restaurar de JSON</button>
+      </div>
+    </div>
+  ` : `
+    <div class="section" style="border-left:4px solid var(--gold)">
+      <h4>⚠️ Banco em Nuvem Não Configurado (Modo Temporário)</h4>
+      <p class="sub" style="margin-bottom:10px">Atenção: No plano grátis do Render, sem a nuvem ativada os cadastros somem ao reiniciar. Digite seu GitHub Token e Repositório abaixo para ativar em 1 clique:</p>
+      
+      <div style="background:rgba(251,191,36,0.06);border:1px dashed var(--border-gold);border-radius:12px;padding:12px;margin-bottom:12px">
+        <label style="font-weight:700">1. GitHub Token (com permissão 'repo')</label>
+        <input id="ac-token" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
+        <label style="font-weight:700;margin-top:8px">2. Repositório Privado no GitHub</label>
+        <input id="ac-repo" placeholder="seu-usuario/vitrinefc-dados">
+        <div id="ac-err" class="err"></div>
+        <button class="btn btn-primary btn-sm mt" style="width:100%" onclick="adminSaveCloudConfig()">⚡ Salvar e Ativar Sincronização em Nuvem</button>
+      </div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-outline btn-sm" onclick="adminDownloadBackup()">⬇️ Baixar Backup JSON Local</button>
+        <button class="btn btn-outline btn-sm" onclick="adminUploadBackupPrompt()">⬆️ Restaurar de JSON</button>
+      </div>
+    </div>
+  `;
+
   c.innerHTML = `
+    ${cloudBox}
     <div class="admin-stats-grid">
       <div class="admin-stat-card" onclick="switchAdminSubTab('users')" style="cursor:pointer">
         <div class="stat-icon">👥</div>
@@ -3646,6 +3685,58 @@ async function renderAdminOverview(c) {
         <button class="btn btn-outline btn-sm" onclick="switchAdminSubTab('stories')">📖 Limpar Stories</button>
       </div>
     </div>`;
+}
+
+async function adminSyncCloudNow() {
+  toast('Sincronizando banco de dados com a nuvem… ⏳');
+  try {
+    const res = await api('/admin/cloud-sync-now', { method: 'POST' });
+    toast('✅ ' + res.message);
+    switchAdminSubTab('overview');
+  } catch (e) { toast('Erro: ' + e.message); }
+}
+
+async function adminSaveCloudConfig() {
+  const token = document.getElementById('ac-token')?.value.trim();
+  const repo = document.getElementById('ac-repo')?.value.trim();
+  const err = document.getElementById('ac-err');
+  if (err) err.textContent = '';
+  if (!token || !repo) {
+    if (err) err.textContent = 'Informe o Token e o Repositório do GitHub.';
+    return;
+  }
+  toast('Validando e sincronizando com o GitHub… ⏳');
+  try {
+    const res = await api('/admin/cloud-config', { method: 'POST', body: { token, repo } });
+    toast('🎉 ' + res.message);
+    switchAdminSubTab('overview');
+  } catch (e) {
+    if (err) err.textContent = e.message;
+    else toast('Erro: ' + e.message);
+  }
+}
+
+function adminDownloadBackup() {
+  window.open('/api/admin/backup-download', '_blank');
+  toast('Download do backup iniciado! 💾');
+}
+
+function adminUploadBackupPrompt() {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.json';
+  inp.onchange = async () => {
+    const file = inp.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      toast('Enviando e aplicando backup… ⏳');
+      const res = await api('/admin/backup-upload', { method: 'POST', body: parsed });
+      toast('✅ ' + res.message);
+      switchAdminSubTab('overview');
+    } catch (e) { toast('Erro ao ler ou restaurar backup: ' + e.message); }
+  };
+  inp.click();
 }
 
 // ---- Sub-aba 2: Usuários (Com controle de Admin) ----
@@ -4234,6 +4325,23 @@ function openResumePdf() {
     </body></html>`);
   w.document.close();
 }
+
+// Conexão e reconexão automática
+window.addEventListener('online', async () => {
+  toast('🟢 Conexão restabelecida! Atualizando dados...');
+  if (TOKEN) {
+    try {
+      ME = await api('/me');
+      if (currentTab === 'feed') loadFeed();
+      else if (currentTab === 'events') loadEvents();
+      else if (currentTab === 'chat') renderConvs();
+    } catch (e) {}
+  }
+});
+
+window.addEventListener('offline', () => {
+  toast('📡 Você está offline. Seus dados locais continuam salvos no aparelho.');
+});
 
 // Inicia aplicação
 window.addEventListener('DOMContentLoaded', init);

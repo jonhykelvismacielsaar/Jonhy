@@ -71,4 +71,12 @@ node server.js
   - **Senha:** `chefe2026`
   - Dá acesso total à aba **🛡️ Admin** e moderação geral do app.
 - **Categorias de post:** Escolha entre **🏆 Jogo profissional/campeonato** ou **🎉 Pelada/várzea** ao postar fotos e vídeos.
+- **Cadastro em 2 passos:** primeiro você escolhe o seu papel — **🏃 Jogador(a)**,
+  **📋 Técnico(a)**, **🟨 Árbitro/Juiz** ou **🔎 Olheiro/Clube** — e o formulário
+  muda inteiro conforme a escolha. *Goleiro é uma posição do jogador*, não um papel à parte.
+- **Ficha específica por papel:** jogador tem atributos FIFA e gols; técnico tem
+  licenças, estilo de jogo e vitórias; árbitro tem entidade, quadro e cartões;
+  olheiro cadastra só o essencial (clube, o que procura e contatos públicos).
+- **Perfil do olheiro:** aparece na busca (filtro **🔎 Olheiros / Clubes**) com
+  WhatsApp, Instagram e e-mail clicáveis para o atleta falar direto.
 - **Painel do Administrador (🛡️ Aba Admin):** Permite gerenciar usuários (promover/remover admin, selo verificado, excluir contas em cascata), posts (trocar categoria profissional/pelada, moderar comentários e excluir publicações), eventos (peneiras e jogos) e stories (com lista de visualizadores e limpeza de expirados).

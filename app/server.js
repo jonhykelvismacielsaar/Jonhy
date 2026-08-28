@@ -394,23 +394,65 @@ function computeAchievements(u) {
   const eventos = db.events.filter(e => (e.participants || []).includes(u.id)).length;
   const stories = db.stories.filter(s => s.userId === u.id).length;
   const st = u.stats || {};
-  return [
+  const gk = isGoalkeeper(u);
+
+  // Medalhas em comum: valem para qualquer tipo de perfil
+  const social = [
     { id: 'estreia', emoji: '🎬', title: 'Estreia na Vitrine', desc: 'Postou o primeiro lance', earned: posts.length >= 1 },
     { id: 'midiatico', emoji: '📸', title: 'Midiático', desc: '5 ou mais publicações', earned: posts.length >= 5 },
     { id: 'craque5', emoji: '⭐', title: 'Craque 5 Estrelas', desc: '3 avaliações 5⭐ nos lances', earned: fiveStars >= 3 },
     { id: 'torcida', emoji: '💛', title: 'Queridinho da Torcida', desc: '10 curtidas nos posts', earned: likes >= 10 },
     { id: 'idolo', emoji: '👥', title: 'Ídolo Local', desc: '5 ou mais seguidores', earned: followers >= 5 },
+    { id: 'presente', emoji: '🙋', title: 'Escalado no Time', desc: 'Confirmado em jogo/peneira', earned: eventos >= 1 },
+    { id: 'storyteller', emoji: '📖', title: 'Sempre em Campo', desc: 'Publicou um story de jogo', earned: stories >= 1 }
+  ];
+
+  // Medalhas específicas do atleta (jogador e goleiro)
+  const atleta = [
     { id: 'namira', emoji: '👀', title: 'Na Mira dos Olheiros', desc: '5 visitas de olheiros', earned: (u.scoutViews || 0) >= 5 },
     { id: 'contratado', emoji: '🤝', title: 'Contratado!', desc: 'Teve proposta aceita', earned: propsAceitas >= 1 },
-    { id: 'presente', emoji: '🙋', title: 'Escalado no Time', desc: 'Confirmado em jogo/peneira', earned: eventos >= 1 },
-    { id: 'storyteller', emoji: '📖', title: 'Sempre em Campo', desc: 'Publicou um story de jogo', earned: stories >= 1 },
-    { id: 'artilheiro', emoji: '⚽', title: 'Artilheiro', desc: '25+ gols na carreira', earned: (st.gols || 0) >= 25 },
-    { id: 'muralha', emoji: '🧱', title: 'Muralha', desc: '100+ defesas na carreira', earned: (st.defesas || 0) >= 100 },
-    { id: 'pegapenalti', emoji: '🧤', title: 'Pega-Pênalti', desc: '10+ pênaltis defendidos', earned: (st.penaltisDefendidos || 0) >= 10 },
+    ...(gk ? [
+      { id: 'muralha', emoji: '🧱', title: 'Muralha', desc: '100+ defesas na carreira', earned: (st.defesas || 0) >= 100 },
+      { id: 'pegapenalti', emoji: '🧤', title: 'Pega-Pênalti', desc: '10+ pênaltis defendidos', earned: (st.penaltisDefendidos || 0) >= 10 }
+    ] : [
+      { id: 'artilheiro', emoji: '⚽', title: 'Artilheiro', desc: '25+ gols na carreira', earned: (st.gols || 0) >= 25 },
+      { id: 'garcom', emoji: '🍽️', title: 'Garçom', desc: '20+ assistências', earned: (st.assistencias || 0) >= 20 }
+    ]),
     { id: 'vencedor', emoji: '🏆', title: 'Vencedor', desc: 'Conquistou um título', earned: (st.titulos || 0) >= 1 },
-    { id: 'garcom', emoji: '🍽️', title: 'Garçom', desc: '20+ assistências', earned: (st.assistencias || 0) >= 20 },
     { id: 'centenario', emoji: '💯', title: 'Centenário', desc: '100+ jogos disputados', earned: (st.jogos || 0) >= 100 }
   ];
+
+  // Medalhas do treinador
+  const tecnico = [
+    { id: 'chamado', emoji: '🤝', title: 'Chamado p/ Comando', desc: 'Teve proposta aceita', earned: propsAceitas >= 1 },
+    { id: 'estrategista', emoji: '📋', title: 'Estrategista', desc: '50+ jogos no comando', earned: (st.jogos || 0) >= 50 },
+    { id: 'campeao', emoji: '🏆', title: 'Campeão', desc: 'Conquistou um título', earned: (st.titulos || 0) >= 1 },
+    { id: 'acesso', emoji: '📈', title: 'Acesso Garantido', desc: 'Levou o time a subir de divisão', earned: (st.acessos || 0) >= 1 },
+    { id: 'veterano', emoji: '🎓', title: 'Veterano da Prancheta', desc: '10+ anos de estrada', earned: (u.experienceYears || 0) >= 10 }
+  ];
+
+  // Medalhas do árbitro
+  const arbitro = [
+    { id: 'apito', emoji: '🟨', title: 'Apito em Dia', desc: '20+ jogos apitados', earned: (st.jogos || 0) >= 20 },
+    { id: 'rigor', emoji: '🟥', title: 'Pulso Firme', desc: '50+ cartões aplicados', earned: ((st.amarelos || 0) + (st.vermelhos || 0)) >= 50 },
+    { id: 'finalista', emoji: '🏆', title: 'Apitou Final', desc: 'Esteve em uma decisão', earned: (st.finais || 0) >= 1 },
+    { id: 'penaltimarcado', emoji: '📣', title: 'Pênalti Marcado', desc: '5+ pênaltis assinalados', earned: (st.penaltisMarcados || 0) >= 5 },
+    { id: 'veteranoapito', emoji: '🎓', title: 'Veterano do Apito', desc: '10+ anos de arbitragem', earned: (u.experienceYears || 0) >= 10 }
+  ];
+
+  // Medalhas do olheiro
+  const olheiro = [
+    { id: 'radar', emoji: '📡', title: 'Radar Ligado', desc: 'Visitou 5 perfis de atletas', earned: (u.scoutViewsGiven || 0) >= 5 },
+    { id: 'negociador', emoji: '🤝', title: 'Negociador', desc: 'Proposta aceita por um atleta', earned: propsAceitas >= 1 },
+    { id: 'olhofaro', emoji: '👁️', title: 'Faro de Olheiro', desc: 'Avaliou 3 atletas com nota', earned: db.ratings.filter(r => r.fromId === u.id).length >= 3 },
+    { id: 'peneira', emoji: '🥅', title: 'Organizador de Peneira', desc: 'Criou um jogo ou peneira', earned: db.events.filter(e => e.userId === u.id).length >= 1 },
+    { id: 'conectado', emoji: '🔗', title: 'Bem Conectado', desc: '5+ conversas abertas', earned: db.messages.filter(m => m.fromId === u.id).length >= 5 }
+  ];
+
+  if (u.role === 'tecnico') return [...social, ...tecnico];
+  if (u.role === 'arbitro') return [...social, ...arbitro];
+  if (u.role === 'olheiro') return [...social.slice(0, 5), ...olheiro];
+  return [...social, ...atleta];
 }
 
 // ============================================================
@@ -418,14 +460,32 @@ function computeAchievements(u) {
 // ============================================================
 
 // ---- Cadastro ----
+// Cada tipo de usuário nasce apenas com o que faz sentido para ele:
+//  jogador/goleiro -> ficha de atleta + atributos FIFA + estatísticas de jogo
+//  tecnico         -> licenças, categorias, estilo de jogo e números de banco
+//  arbitro         -> entidade, quadro, modalidades e números de apito
+//  olheiro         -> poucas informações: identidade, clube e contatos públicos
+const ROLE_DEFAULT_POSITION = {
+  goleiro: 'Goleiro',
+  tecnico: 'Técnico',
+  arbitro: 'Árbitro Central'
+};
+
 app.post('/api/register', (req, res) => {
-  const { name, email, password, role } = req.body;
+  const { name, email, password, role, position, club, specialty } = req.body;
   if (!name || !email || !password || !role) return res.status(400).json({ error: 'Preencha todos os campos.' });
+  if (!/^\S+@\S+\.\S+$/.test(email.trim())) return res.status(400).json({ error: 'Informe um e-mail válido.' });
+  if (String(password).length < 6) return res.status(400).json({ error: 'A senha precisa ter pelo menos 6 caracteres.' });
   if (db.users.find(u => (u.email || '').toLowerCase() === email.toLowerCase().trim()))
     return res.status(400).json({ error: 'Este e-mail já está cadastrado.' });
-  
+
   const validRoles = ['jogador', 'goleiro', 'tecnico', 'arbitro', 'olheiro'];
-  const cleanRole = validRoles.includes(role) ? role : 'jogador';
+  let cleanRole = validRoles.includes(role) ? role : 'jogador';
+  // "Jogador" que escolhe a posição Goleiro passa a ser goleiro (mantém os atributos FIFA de GK)
+  const cleanPosition = String(position || '').trim();
+  if (cleanRole === 'jogador' && cleanPosition === 'Goleiro') cleanRole = 'goleiro';
+
+  const isPlayer = cleanRole === 'jogador' || cleanRole === 'goleiro';
 
   const user = {
     id: uid(),
@@ -434,7 +494,7 @@ app.post('/api/register', (req, res) => {
     password: hash(password),
     role: cleanRole,
     nickname: '',
-    position: cleanRole === 'goleiro' ? 'Goleiro' : (cleanRole === 'tecnico' ? 'Técnico' : (cleanRole === 'arbitro' ? 'Árbitro' : '')),
+    position: cleanPosition || ROLE_DEFAULT_POSITION[cleanRole] || '',
     positions2: '',
     level: '',
     city: '',
@@ -446,13 +506,28 @@ app.post('/api/register', (req, res) => {
     teams: '',
     strengths: '',
     bio: '',
-    // Ficha FIFA (informações sobre a pessoa + atributos do card)
     nationality: '',
     birthdate: '',
-    club: '',
+    club: String(club || '').trim(),
     shirtNumber: null,
     fifa: {},
-    availableHire: true,
+    stats: {},
+    // Campos específicos por tipo de usuário (vazios até o perfil ser completado)
+    modality: isPlayer ? '' : '',
+    licenses: '',            // técnico: CBF Pró / A / B / C
+    coachCategories: '',     // técnico: Sub-15, Sub-17, Profissional…
+    experienceYears: null,   // técnico e árbitro: anos de atuação
+    playstyle: '',           // técnico: estilo de jogo
+    methodology: '',         // técnico: formação / metodologia
+    refEntity: '',           // árbitro: federação / liga / entidade
+    refRegions: '',          // árbitro e olheiro: região de atuação
+    scoutRole: String(specialty || '').trim(), // olheiro: cargo (Olheiro, Coordenador…)
+    scoutPositions: '',      // olheiro: posições que procura
+    contactPhone: '',        // olheiro: WhatsApp público
+    contactInstagram: '',    // olheiro: @ do Instagram
+    contactEmail: '',        // olheiro: e-mail público de contato
+    publicProfile: true, // olheiro escolhe depois se quer sumir da busca
+    availableHire: isPlayer,
     availableFreela: false,
     fee: '',
     photo: '',
@@ -510,20 +585,67 @@ app.post('/api/me/photo', auth, upload.single('photo'), (req, res) => {
 });
 
 // ---- Editar perfil ----
+// Campos liberados por tipo de usuário: cada perfil só recebe o que pertence a ele.
+const PROFILE_FIELDS = {
+  comum: ['name', 'nickname', 'city', 'state', 'bio', 'photo'],
+  jogador: ['position', 'positions2', 'level', 'age', 'height', 'weight', 'foot', 'teams',
+    'strengths', 'nationality', 'birthdate', 'club', 'shirtNumber', 'modality',
+    'availableHire', 'availableFreela', 'fee'],
+  tecnico: ['position', 'level', 'club', 'teams', 'strengths', 'licenses', 'coachCategories',
+    'experienceYears', 'playstyle', 'methodology', 'nationality', 'birthdate', 'modality',
+    'availableHire', 'availableFreela', 'fee'],
+  arbitro: ['position', 'level', 'refEntity', 'refRegions', 'experienceYears', 'modalities',
+    'nationality', 'birthdate', 'club', 'strengths', 'availableHire', 'availableFreela', 'fee'],
+  olheiro: ['club', 'scoutRole', 'scoutRegions', 'scoutPositions', 'modalities', 'position',
+    'contactPhone', 'contactInstagram', 'contactEmail', 'publicProfile', 'level']
+};
+
+function profileFieldsFor(u) {
+  const role = u.role === 'goleiro' ? 'jogador' : u.role;
+  return [...PROFILE_FIELDS.comum, ...(PROFILE_FIELDS[role] || [])];
+}
+
 app.put('/api/me/profile', auth, (req, res) => {
-  const allowed = ['name','nickname','position','positions2','level','city','state','age','height','weight','foot','teams','strengths','bio','nationality','birthdate','club','shirtNumber','availableHire','availableFreela','fee'];
-  allowed.forEach(k => { if (req.body[k] !== undefined) req.user[k] = req.body[k]; });
+  profileFieldsFor(req.user).forEach(k => {
+    if (req.body[k] === undefined) return;
+    let v = req.body[k];
+    if (k === 'experienceYears' || k === 'age' || k === 'height' || k === 'weight' || k === 'shirtNumber') {
+      v = v === '' || v === null ? null : Math.max(0, parseInt(v, 10) || 0);
+    }
+    if (k === 'modalities' || k === 'coachCategories') {
+      v = Array.isArray(v) ? v.map(x => String(x).trim()).filter(Boolean) : v;
+    }
+    if (k === 'publicProfile' || k === 'availableHire' || k === 'availableFreela') v = !!v;
+    if (typeof v === 'string') v = v.trim();
+    req.user[k] = v;
+  });
+  // Jogador que troca a posição para Goleiro (ou sai dela) ajusta o papel automaticamente
+  if (req.user.role === 'jogador' || req.user.role === 'goleiro') {
+    req.user.role = req.user.position === 'Goleiro' ? 'goleiro' : 'jogador';
+  }
   saveDB();
   res.json(publicUser(req.user));
 });
 
 // ---- Estatísticas de carreira ----
+// Números específicos: jogador (gols/assistências/defesas), técnico (vitórias/acessos),
+// árbitro (jogos apitados/cartões) e nada disso para o olheiro.
+const STATS_FIELDS = {
+  jogador: ['jogos', 'gols', 'assistencias', 'defesas', 'penaltisDefendidos', 'titulos', 'melhorJogador'],
+  tecnico: ['jogos', 'vitorias', 'empates', 'titulos', 'acessos'],
+  arbitro: ['jogos', 'amarelos', 'vermelhos', 'penaltisMarcados', 'finais', 'titulos']
+};
+
 app.put('/api/me/stats', auth, (req, res) => {
-  const allowed = ['jogos','gols','assistencias','defesas','penaltisDefendidos','titulos','melhorJogador','amarelos','vermelhos'];
+  const role = req.user.role === 'goleiro' ? 'jogador' : req.user.role;
+  const allowed = STATS_FIELDS[role] || [];
+  if (!allowed.length) return res.status(400).json({ error: 'Este tipo de perfil não usa estatísticas de carreira.' });
   req.user.stats = req.user.stats || {};
   allowed.forEach(k => {
     if (req.body[k] !== undefined) req.user.stats[k] = Math.max(0, parseInt(req.body[k], 10) || 0);
   });
+  // Limpa números que não pertencem mais ao tipo de perfil
+  Object.keys(req.user.stats).forEach(k => { if (!allowed.includes(k)) delete req.user.stats[k]; });
   saveDB();
   res.json(publicUser(req.user));
 });
@@ -1089,6 +1211,7 @@ app.get('/api/users/:id', auth, (req, res) => {
   if (!u) return res.status(404).json({ error: 'Usuário não encontrado.' });
   if (req.user.role === 'olheiro' && req.user.id !== u.id) {
     u.scoutViews = (u.scoutViews || 0) + 1;
+    req.user.scoutViewsGiven = (req.user.scoutViewsGiven || 0) + 1;
     saveDB();
   }
   const ratings = db.ratings.filter(r => r.toId === u.id).map(r => ({
@@ -1100,17 +1223,23 @@ app.get('/api/users/:id', auth, (req, res) => {
 
 // ---- Busca de talentos ----
 app.get('/api/search', auth, (req, res) => {
-  const { q, role, position, city, level, availableFreela } = req.query;
-  let list = db.users.filter(u => u.role !== 'olheiro');
+  const { q, role, position, city, level, availableFreela, scouts } = req.query;
+  const wantScouts = role === 'olheiro' || scouts === '1';
+  // Olheiros só aparecem quando são buscados de propósito e o perfil deles é público.
+  let list = db.users.filter(u => (u.role !== 'olheiro') || (wantScouts && u.publicProfile !== false));
   if (q) {
     const s = q.toLowerCase();
     list = list.filter(u =>
       (u.name || '').toLowerCase().includes(s) ||
       (u.nickname || '').toLowerCase().includes(s) ||
       (u.teams || '').toLowerCase().includes(s) ||
+      (u.club || '').toLowerCase().includes(s) ||
+      (u.refEntity || '').toLowerCase().includes(s) ||
+      (u.scoutPositions || '').toLowerCase().includes(s) ||
       (u.strengths || '').toLowerCase().includes(s));
   }
-  if (role) list = list.filter(u => u.role === role);
+  if (role === 'goleiro') list = list.filter(u => u.role === 'goleiro' || u.position === 'Goleiro');
+  else if (role) list = list.filter(u => u.role === role);
   if (position) list = list.filter(u => u.position === position || (u.positions2 || '').includes(position));
   if (city) list = list.filter(u => (u.city || '').toLowerCase().includes(city.toLowerCase()));
   if (level) list = list.filter(u => u.level === level);

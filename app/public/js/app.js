@@ -20,6 +20,71 @@ const ROLES = {
   admin: { emoji: '🛡️', label: 'Administrador' }
 };
 
+// ---------- Papéis oferecidos no cadastro (só 4 — goleiro virou posição do jogador) ----------
+const SIGNUP_ROLES = [
+  {
+    id: 'jogador', emoji: '🏃', accent: 'green', label: 'Jogador(a)',
+    tag: 'De linha ou goleiro',
+    desc: 'Sua vitrine com lances, card FIFA e números de carreira.'
+  },
+  {
+    id: 'tecnico', emoji: '📋', accent: 'cyan', label: 'Técnico(a)',
+    tag: 'Comando e treino',
+    desc: 'Currículo do banco: licenças, categorias e conquistas.'
+  },
+  {
+    id: 'arbitro', emoji: '🟨', accent: 'gold', label: 'Árbitro / Juiz',
+    tag: 'Apito e bandeira',
+    desc: 'Entidade, quadro e os jogos em que você apitou.'
+  },
+  {
+    id: 'olheiro', emoji: '🔎', accent: 'rose', label: 'Olheiro / Clube',
+    tag: 'Descobre talentos',
+    desc: 'Cadastro rapidinho: e-mail, senha e um perfil de contato.'
+  }
+];
+function signupRole(id) { return SIGNUP_ROLES.find(r => r.id === id) || SIGNUP_ROLES[0]; }
+
+// ---------- Posições agrupadas por setor (jogador) ----------
+const POS_GROUPS = [
+  { id: 'gk', label: '🧤 Goleiro', items: ['Goleiro'] },
+  { id: 'defesa', label: '🛡️ Defesa', items: ['Zagueiro Central', 'Zagueiro Canhoto', 'Lateral Direito', 'Lateral Esquerdo', 'Fixo'] },
+  { id: 'meio', label: '🎯 Meio-campo', items: ['Volante / 1º Volante', 'Segundo Volante', 'Meia Central', 'Meia-Armador / Camisa 10', 'Ala Direito', 'Ala Esquerdo'] },
+  { id: 'ataque', label: '⚽ Ataque', items: ['Ponta Direita', 'Ponta Esquerda', 'Segundo Atacante', 'Pivô', 'Centroavante', 'Atacante Geral'] }
+];
+
+// ---------- Vocabulário do Técnico ----------
+const COACH_SPECIALTIES = ['Técnico Principal', 'Auxiliar Técnico', 'Treinador de Base', 'Treinador de Goleiros', 'Preparador Físico', 'Analista de Desempenho', 'Coordenador Técnico'];
+const COACH_CATEGORIES = ['Sub-11', 'Sub-13', 'Sub-15', 'Sub-17', 'Sub-20', 'Feminino', 'Amador', 'Semiprofissional', 'Profissional', 'Futsal', 'Society'];
+const COACH_LICENSES = ['Sem licença ainda', 'Curso regional', 'CBF C (Licença C)', 'CBF B (Licença B)', 'CBF A (Licença A)', 'CBF Pró', 'Licença CONMEBOL / FIFA'];
+const COACH_LEVELS = ['Base', 'Amador', 'Semiprofissional', 'Profissional'];
+const PLAYSTYLES = ['Posse de bola', 'Contra-ataque', 'Pressão alta', 'Jogo direto', 'Bloco baixo', 'Flexível'];
+
+// ---------- Vocabulário do Árbitro ----------
+const REF_FUNCTIONS = ['Árbitro Central', 'Assistente (Bandeirinha)', 'Quarto Árbitro', 'Árbitro de Futsal', 'Árbitro de Society', 'Árbitro de Vídeo (VAR)'];
+const REF_ENTITIES = ['CBF', 'Federação Estadual', 'Liga Municipal', 'Liga Amadora', 'Escola / Faculdade', 'Independente'];
+const REF_LEVELS = ['Aspirante / Iniciante', 'Municipal', 'Estadual', 'Nacional', 'FIFA'];
+
+// ---------- Vocabulário do Olheiro ----------
+const SCOUT_ROLES = ['Olheiro', 'Coordenador de Base', 'Diretor de Futebol', 'Analista de Mercado', 'Agente / Empresário', 'Supervisor', 'Presidente de Clube'];
+
+const MODALITY_CHIPS = [
+  { id: 'campo', label: '🌿 Campo' },
+  { id: 'society', label: '🏟️ Society' },
+  { id: 'quadra', label: '⚡ Futsal' }
+];
+
+function roleKind(u) {
+  if (!u) return 'jogador';
+  if (u.role === 'goleiro') return 'jogador';
+  return u.role || 'jogador';
+}
+function arrVal(v) {
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string' && v.trim()) return v.split(',').map(s => s.trim()).filter(Boolean);
+  return [];
+}
+
 const MODALITIES = {
   campo: {
     id: 'campo',
@@ -308,49 +373,219 @@ async function doLogin() {
   }
 }
 
-let regRole = null;
+// ============================================================
+// CADASTRO — assistente em 2 passos 🪄
+// Passo 1: escolher o papel (4 opções). Passo 2: dados do papel.
+// ============================================================
+let regRole = 'jogador';
+let regStep = 1;
+let regPos = '';
+let regSpecialty = '';
+
 function renderRegister() {
-  app.innerHTML = `
-    <div class="screen" style="padding-top:40px">
-      <button class="back" onclick="renderSplash()">‹ Voltar</button>
-      <h2>Criar conta 🇧🇷</h2>
-      <p class="sub">Qual é o seu perfil no futebol?</p>
-      <div class="role-grid">
-        ${Object.entries(ROLES).filter(([k]) => k !== 'admin').map(([k, r]) => `
-          <button class="role-card" data-role="${k}" onclick="pickRole('${k}')">
-            <span class="emoji">${r.emoji}</span>${r.label}
-            <small>${k === 'olheiro' ? 'Quero descobrir talentos e contratar' : 'Quero divulgar meus lances e jogar'}</small>
-          </button>`).join('')}
+  regStep = 1;
+  regRole = 'jogador';
+  regPos = '';
+  regSpecialty = '';
+  drawRegister();
+}
+
+function drawRegister() {
+  app.innerHTML = regStep === 1 ? regStep1Html() : regStep2Html();
+  window.scrollTo({ top: 0 });
+  const first = document.getElementById('r-name');
+  if (first) setTimeout(() => first.focus({ preventScroll: true }), 220);
+}
+
+function regAuthShell(inner) {
+  return `
+    <div class="screen auth">
+      <div class="auth-head">
+        <button class="back" onclick="${regStep === 1 ? 'renderSplash()' : 'regBack()'}">‹ ${regStep === 1 ? 'Voltar' : 'Trocar papel'}</button>
+        <div class="steps">
+          <span class="dot ${regStep >= 1 ? 'on' : ''}"></span>
+          <span class="dot ${regStep >= 2 ? 'on' : ''}"></span>
+        </div>
       </div>
-      <div id="reg-fields" style="display:none;margin-top:16px">
-        <label>Seu nome completo</label>
-        <input id="r-name" placeholder="Ex: Gabriel Silva">
-        <label>E-mail</label>
-        <input id="r-email" type="email" placeholder="gabriel@email.com" autocomplete="email">
-        <label>Senha</label>
-        <input id="r-pass" type="password" placeholder="Mínimo 6 caracteres" autocomplete="new-password">
-        <div id="r-err" class="err"></div>
-        <button class="btn btn-primary mt" onclick="doRegister()">Criar Conta e Entrar ⚽</button>
-      </div>
+      ${inner}
     </div>`;
+}
+
+function regStep1Html() {
+  return regAuthShell(`
+    <img class="auth-logo" src="/img/logo.png" alt="Vitrine FC">
+    <h1 class="auth-title">Qual é o seu papel<br><span>no futebol?</span></h1>
+    <p class="sub">Escolha uma opção — o cadastro muda inteiro conforme ela.</p>
+
+    <div class="role-picker">
+      ${SIGNUP_ROLES.map(r => `
+        <button class="role-card acc-${r.accent} ${regRole === r.id ? 'on' : ''}" data-role="${r.id}" onclick="pickRole('${r.id}')">
+          <span class="rc-emoji">${r.emoji}</span>
+          <span class="rc-body">
+            <b>${r.label}</b>
+            <i>${r.tag}</i>
+            <small>${r.desc}</small>
+          </span>
+          <span class="rc-check">✓</span>
+        </button>`).join('')}
+    </div>
+
+    <button class="btn btn-primary btn-lg mt" onclick="regGoStep2()">Continuar ➜</button>
+    <p class="auth-foot">Já tem conta? <a onclick="renderLogin()">Entrar</a></p>`);
+}
+
+function regStep2Html() {
+  const r = signupRole(regRole);
+  const extra = regExtraHtml();
+  return regAuthShell(`
+    <div class="auth-chip acc-${r.accent}">${r.emoji} ${r.label}</div>
+    <h1 class="auth-title">${r.id === 'olheiro' ? 'Cadastro rápido' : 'Criar sua conta'}</h1>
+    <p class="sub">${r.id === 'olheiro'
+      ? 'Só o essencial agora. O resto você completa no seu perfil.'
+      : 'Só o essencial agora — depois você completa a ficha no seu perfil.'}</p>
+
+    <div class="form-card">
+      <div class="field">
+        <label for="r-name">${r.id === 'olheiro' ? 'Nome do responsável' : 'Seu nome completo'}</label>
+        <input id="r-name" placeholder="Ex: Gabriel Silva" autocomplete="name">
+      </div>
+      <div class="field">
+        <label for="r-email">E-mail</label>
+        <input id="r-email" type="email" placeholder="gabriel@email.com" autocomplete="email" inputmode="email">
+      </div>
+      <div class="field">
+        <label for="r-pass">Senha</label>
+        <div class="pw-wrap">
+          <input id="r-pass" type="password" placeholder="Mínimo 6 caracteres" autocomplete="new-password"
+                 oninput="updatePwMeter(this.value)" onkeydown="if(event.key==='Enter')doRegister()">
+          <button type="button" class="pw-eye" onclick="togglePw(this,'r-pass')" aria-label="Mostrar senha">👁️</button>
+        </div>
+        <div class="pw-meter"><span id="pw-bar" data-s="0"></span></div>
+      </div>
+      ${extra}
+    </div>
+
+    <div id="r-err" class="err"></div>
+    <button class="btn btn-primary btn-lg mt" onclick="doRegister()">⚽ Criar conta e entrar</button>
+    <p class="auth-foot">Depois de entrar você completa a ficha no seu perfil. 📲</p>`);
+}
+
+function regExtraHtml() {
+  if (regRole === 'jogador') {
+    return `
+      <div class="field">
+        <label>Sua posição <span class="opt">(goleiro é uma posição)</span></label>
+        ${POS_GROUPS.map(g => `
+          <div class="chip-group">
+            <h5>${g.label}</h5>
+            <div class="chip-row" data-chip="pos" data-multi="0">
+              ${g.items.map(p => `<button type="button" class="chip ${regPos === p ? 'on' : ''}" onclick="pickChip('pos','${p.replace(/'/g, "\\'")}')">${p}</button>`).join('')}
+            </div>
+          </div>`).join('')}
+      </div>`;
+  }
+  if (regRole === 'tecnico') {
+    return `
+      <div class="field">
+        <label>Sua função no futebol</label>
+        <div class="chip-row" data-chip="spec" data-multi="0">
+          ${COACH_SPECIALTIES.map(s => `<button type="button" class="chip ${regSpecialty === s ? 'on' : ''}" onclick="pickChip('spec','${s}')">${s}</button>`).join('')}
+        </div>
+      </div>`;
+  }
+  if (regRole === 'arbitro') {
+    return `
+      <div class="field">
+        <label>Sua função em campo</label>
+        <div class="chip-row" data-chip="func" data-multi="0">
+          ${REF_FUNCTIONS.map(s => `<button type="button" class="chip ${regSpecialty === s ? 'on' : ''}" onclick="pickChip('spec','${s}')">${s}</button>`).join('')}
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="field">
+      <label for="r-club">Clube, empresa ou agência <span class="opt">(opcional)</span></label>
+      <input id="r-club" placeholder="Ex: EC Juventude / Agência Bola de Ouro">
+    </div>
+    <div class="mini-note">🔎 Atletas vão ver seu perfil e seus contatos na busca.</div>`;
+}
+
+function pickChip(kind, value) {
+  if (kind === 'pos') regPos = regPos === value ? '' : value;
+  else regSpecialty = regSpecialty === value ? '' : value;
+
+  // guarda o que já foi digitado, redesenha o passo 2 e devolve os valores
+  const keep = {
+    name: document.getElementById('r-name')?.value || '',
+    email: document.getElementById('r-email')?.value || '',
+    pass: document.getElementById('r-pass')?.value || '',
+    club: document.getElementById('r-club')?.value || ''
+  };
+  const holder = document.createElement('div');
+  holder.innerHTML = regStep2Html();
+  const next = holder.firstElementChild;
+  document.querySelector('.auth')?.replaceWith(next);
+  document.getElementById('r-name').value = keep.name;
+  document.getElementById('r-email').value = keep.email;
+  document.getElementById('r-pass').value = keep.pass;
+  const clubEl = document.getElementById('r-club');
+  if (clubEl) clubEl.value = keep.club;
+  updatePwMeter(keep.pass);
+  window.scrollTo({ top: 0 });
+}
+
+function togglePw(btn, id) {
+  const inp = document.getElementById(id);
+  const show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password';
+  btn.textContent = show ? '🙈' : '👁️';
+}
+
+function updatePwMeter(v) {
+  const bar = document.getElementById('pw-bar');
+  if (!bar) return;
+  const score = Math.min(4, (v.length >= 6 ? 1 : 0) + (v.length >= 10 ? 1 : 0) + (/[A-Z]/.test(v) ? 1 : 0) + (/[0-9]/.test(v) ? 1 : 0));
+  bar.style.width = (score * 25) + '%';
+  bar.dataset.s = score;
 }
 
 function pickRole(role) {
   regRole = role;
-  document.querySelectorAll('.role-card').forEach(c => c.classList.toggle('selected', c.dataset.role === role));
-  $('#reg-fields').style.display = 'block';
-  $('#reg-fields').scrollIntoView({ behavior: 'smooth' });
+  document.querySelectorAll('.role-card').forEach(c => c.classList.toggle('on', c.dataset.role === role));
+}
+
+function regGoStep2() {
+  regStep = 2;
+  drawRegister();
+}
+
+function regBack() {
+  regStep = 1;
+  drawRegister();
 }
 
 async function doRegister() {
+  const name = $('#r-name').value.trim();
+  const email = $('#r-email').value.trim();
+  const password = $('#r-pass').value;
+  const err = $('#r-err');
+  if (!name) return (err.textContent = 'Digite seu nome.', $('#r-name').focus());
+  if (!/^\S+@\S+\.\S+$/.test(email)) return (err.textContent = 'Digite um e-mail válido.', $('#r-email').focus());
+  if (password.length < 6) return (err.textContent = 'A senha precisa ter pelo menos 6 caracteres.', $('#r-pass').focus());
+  err.textContent = '';
+  const btn = document.querySelector('.auth .btn-lg');
+  if (btn) { btn.disabled = true; btn.textContent = 'Criando sua conta… ⏳'; }
   try {
     const res = await api('/register', {
       method: 'POST',
       body: {
-        name: $('#r-name').value.trim(),
-        email: $('#r-email').value.trim(),
-        password: $('#r-pass').value,
-        role: regRole
+        name,
+        email,
+        password,
+        role: regRole,
+        position: regRole === 'jogador' ? regPos : '',
+        specialty: regSpecialty,
+        club: document.getElementById('r-club')?.value?.trim() || ''
       }
     });
     TOKEN = res.token;
@@ -358,7 +593,8 @@ async function doRegister() {
     localStorage.setItem('vfc_token', TOKEN);
     renderEditProfile(true);
   } catch (e) {
-    $('#r-err').textContent = e.message;
+    if (btn) { btn.disabled = false; btn.textContent = '⚽ Criar conta e entrar'; }
+    if (err) err.textContent = e.message;
   }
 }
 
@@ -1654,6 +1890,7 @@ async function renderSearch() {
         <option value="goleiro">🧤 Goleiros</option>
         <option value="tecnico">📋 Técnicos</option>
         <option value="arbitro">🟨 Árbitros</option>
+        <option value="olheiro">🔎 Olheiros / Clubes</option>
       </select>
       <select id="s-pos" onchange="doSearch()">
         <option value="">Todas as posições</option>
@@ -1766,111 +2003,57 @@ function doSearch() {
     if ($('#s-level').value) params.set('level', $('#s-level').value);
     if ($('#s-freela').checked) params.set('availableFreela', '1');
     const users = await api('/search?' + params);
-    $('#s-results').innerHTML = users.length ? users.map(u => `
-      <div class="player-card" onclick="renderProfile('${u.id}')" style="cursor:pointer">
+    $('#s-results').innerHTML = users.length ? users.map(u => {
+      const k = roleKind(u);
+      const isScout = k === 'olheiro';
+      const sub = isScout
+        ? [u.scoutRole, u.club, u.scoutRegions].filter(Boolean).map(esc).join(' · ')
+        : `${esc(u.position || ROLES[u.role]?.label || '')}${u.level ? ' · ' + esc(u.level) : ''}`;
+      return `
+      <div class="player-card ${isScout ? 'scout' : ''}" onclick="renderProfile('${u.id}')" style="cursor:pointer">
         ${avatarHtml(u)}
         <div class="info">
-          <b>${esc(u.name)} ${u.verified ? '✅' : ''} <span class="ovr-mini">${u.overall}</span></b>
-          <div class="meta">${ROLES[u.role]?.emoji || ''} ${esc(u.position || ROLES[u.role]?.label || '')}${u.level ? ' · ' + esc(u.level) : ''}${u.city ? ' · ' + esc(u.city) + '/' + esc(u.state || '') : ''}</div>
+          <b>${esc(u.name)} ${u.verified ? '✅' : ''} ${isScout ? '' : `<span class="ovr-mini">${u.overall}</span>`}</b>
+          <div class="meta">${ROLES[u.role]?.emoji || ''} ${sub}${u.city ? ' · ' + esc(u.city) + '/' + esc(u.state || '') : ''}</div>
           <div style="margin-top:4px">${starsHtml(u.ratingAvg, u.ratingCount)}</div>
           <div style="margin-top:5px">
-            ${u.availableHire ? '<span class="pill green">Disponível p/ contrato</span>' : ''}
+            ${isScout ? '<span class="pill rose">🔎 Olheiro / Clube</span>' : ''}
+            ${u.availableHire ? `<span class="pill green">${isScout ? 'Avaliando atletas' : 'Disponível p/ contrato'}</span>` : ''}
             ${u.availableFreela ? '<span class="pill">⚡ Freela' + (u.fee ? ' · ' + esc(u.fee) : '') + '</span>' : ''}
           </div>
         </div>
-        <button class="vs-btn" onclick="addCompare('${u.id}', '${esc(u.name.split(' ')[0])}')">🆚</button>
-      </div>`).join('')
-      : '<div class="empty"><span class="big">🥅</span>Nenhum talento encontrado com esses filtros.</div>';
+        ${isScout ? '' : `<button class="vs-btn" onclick="addCompare('${u.id}', '${esc(u.name.split(' ')[0])}')">🆚</button>`}
+      </div>`;
+    }).join('')
+      : '<div class="empty"><span class="big">🥅</span>Nenhum perfil encontrado com esses filtros.</div>';
   }, 250);
 }
 
 // ============================================================
 // PERFIL DO USUÁRIO
 // ============================================================
-async function renderProfile(userId) {
-  const c = $('#content');
-  c.innerHTML = '<p class="empty">Carregando perfil… ⚽</p>';
-  const { user: u, ratings, achievements } = await api('/users/' + userId);
-  const posts = await api('/posts?userId=' + userId);
-  const isFollowingRes = await api('/users/' + userId + '/is-following').catch(() => ({ following: false }));
-  const iFollow = isFollowingRes.following;
-  
-  window._lastProfile = { user: u, achievements: achievements || [] };
-  cachePosts(posts);
-  const mine = u.id === ME.id;
-  const videos = posts.filter(p => p.type === 'video').length;
-  const postsProf = posts.filter(p => p.category === 'profissional');
-  const postsPelada = posts.filter(p => p.category !== 'profissional');
-  const totalLikes = posts.reduce((s, p) => s + p.likes.length, 0);
-  const earned = (achievements || []).filter(a => a.earned);
-
-  c.innerHTML = `
-    ${!mine ? `<button class="back" onclick="showTab('${currentTab === 'profile' ? 'search' : currentTab}')">‹ Voltar</button>` : ''}
-    <div class="profile-head">
-      ${u.role !== 'olheiro' ? `<div class="overall-badge"><b>${u.overall}</b><span>OVR</span></div>` : ''}
-      ${mine ? `
-        <div class="upload-btn" style="display:inline-block">
-          ${avatarHtml(u, 'lg', false)}
-          <input type="file" accept="image/*" onchange="newProfilePhoto(this)">
-          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">toque para trocar a foto</div>
-        </div>` : avatarHtml(u, 'lg', false)}
-      <h3>${esc(u.name)} ${u.verified ? '✅' : ''}</h3>
-      ${u.nickname ? `<div class="nick">"${esc(u.nickname)}"</div>` : ''}
-      <div class="loc">${ROLES[u.role]?.emoji || ''} ${esc(u.position || ROLES[u.role]?.label || '')}${u.positions2 ? ' · também: ' + esc(u.positions2) : ''}</div>
-      <div class="loc">${u.city ? '📍 ' + esc(u.city) + '/' + esc(u.state || '') : ''} ${u.level ? ' · ' + esc(u.level) : ''}</div>
-      <div style="margin-top:6px">${starsHtml(u.ratingAvg, u.ratingCount)}</div>
-
-      <div class="follow-row">
-        <span><b id="prof-followers">${u.followers}</b> seguidores</span>
-        <span><b>${u.following}</b> seguindo</span>
+// ---------- Seções do perfil: cada tipo de usuário mostra só o que é dele ----------
+function profileRoleSections(u, earned, achievements) {
+  const kind = roleKind(u);
+  const medals = `
+    <div class="section">
+      <h4>🏅 Conquistas & Medalhas (${earned.length}/${(achievements || []).length})</h4>
+      <div class="medal-grid">
+        ${(achievements || []).map(a => `
+          <div class="medal ${a.earned ? '' : 'locked'}">
+            <span class="m-emoji">${a.emoji}</span>
+            <b>${esc(a.title)}</b>
+            <span class="m-desc">${esc(a.desc)}</span>
+          </div>`).join('')}
       </div>
+    </div>`;
 
-      <div class="row2 mt" style="max-width:320px;margin-left:auto;margin-right:auto">
-        <button class="btn btn-gold btn-sm" onclick="openFifaCard()">🃏 Ver Card FIFA</button>
-        <button class="btn btn-outline btn-sm" onclick="openResumePdf()">📄 Currículo PDF</button>
-      </div>
-    </div>
-
-    <div class="stat-grid">
-      <div class="stat"><b>${posts.length}</b><span>Publicações</span></div>
-      <div class="stat"><b>${videos}</b><span>Vídeos</span></div>
-      <div class="stat"><b>${totalLikes}</b><span>Curtidas</span></div>
-    </div>
-
-    ${mine ? `
-      <div class="row2">
-        <button class="btn btn-green btn-sm" onclick="renderEditProfile()">✏️ Editar Perfil</button>
-        <button class="btn btn-outline btn-sm" onclick="openSecurityModal()">🔐 E-mail e Senha</button>
-        <button class="btn btn-primary btn-sm" onclick="shareProfile('${u.id}')">🔗 Compartilhar</button>
-      </div>
-      ${ME.isAdmin ? `
-        <button class="btn btn-primary btn-sm mt" style="width:100%" onclick="showTab('admin')">
-          🛡️ Acessar Painel do Administrador
-        </button>` : ''}
-      <button class="btn btn-danger btn-sm mt" style="width:100%" onclick="logout()">Sair da conta</button>` : `
-      <div class="row2">
-        <button class="btn btn-primary btn-sm" onclick="openProposal('${u.id}', '${esc(u.name)}')">🤝 Contratar / Chamar p/ jogo</button>
-        <button class="btn ${iFollow ? 'btn-outline' : 'btn-green'} btn-sm" id="btn-follow" onclick="toggleFollow('${u.id}')">${iFollow ? 'Seguindo' : '➕ Seguir'}</button>
-      </div>
-      <div class="row2 mt" style="margin-top:8px">
-        <button class="btn btn-outline btn-sm" onclick="openChat('${u.id}', '${esc(u.name)}')">💬 Mensagem privada</button>
-        <button class="btn btn-outline btn-sm" onclick="openRating('${u.id}', '${esc(u.name)}')">⭐ Avaliar atleta</button>
-      </div>`}
-
-    <!-- Seção de Jogos & Eventos Criados pelo Usuário -->
-    <div class="section" id="profile-events-section" style="margin-top:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <h4 style="margin:0">📍 Jogos & Peneiras Criados</h4>
-        ${mine ? `<button class="btn btn-primary btn-xs" onclick="openNewEvent()">➕ Criar Jogo</button>` : ''}
-      </div>
-      <div id="profile-events-list"><p class="empty" style="padding:12px">Carregando jogos do perfil… ⏳</p></div>
-    </div>
-
-    ${u.bio ? `<div class="section"><h4>📖 Sobre</h4><p>${esc(u.bio)}</p></div>` : ''}
-
-    ${u.role !== 'olheiro' ? `
+  if (kind === 'jogador') {
+    const gk = isGoalkeeper(u);
+    const st = u.stats || {};
+    return `
       <div class="section">
-        <h4>📋 Ficha do Atleta</h4>
+        <h4>${gk ? '🧤 Ficha do Goleiro' : '📋 Ficha do Atleta'}</h4>
         <div class="row2" style="font-size:13px;line-height:1.7">
           <div>
             ${u.age ? `Idade: <b>${u.age} anos</b><br>` : ''}
@@ -1899,12 +2082,13 @@ async function renderProfile(userId) {
       <div class="section">
         <h4>📊 Números de Carreira</h4>
         <div class="stat-grid" style="grid-template-columns:repeat(3, 1fr);margin:8px 0">
-          <div class="stat"><b>${u.stats?.jogos || 0}</b><span>Jogos</span></div>
-          <div class="stat"><b>${u.stats?.gols || 0}</b><span>Gols</span></div>
-          <div class="stat"><b>${u.stats?.assistencias || 0}</b><span>Assistências</span></div>
-          <div class="stat"><b>${u.stats?.defesas || 0}</b><span>Defesas 🧤</span></div>
-          <div class="stat"><b>${u.stats?.penaltisDefendidos || 0}</b><span>Pênaltis 🧤</span></div>
-          <div class="stat"><b>${u.stats?.titulos || 0}</b><span>Títulos 🏆</span></div>
+          <div class="stat"><b>${st.jogos || 0}</b><span>Jogos</span></div>
+          ${gk
+            ? `<div class="stat"><b>${st.defesas || 0}</b><span>Defesas 🧤</span></div>
+               <div class="stat"><b>${st.penaltisDefendidos || 0}</b><span>Pênaltis 🧤</span></div>`
+            : `<div class="stat"><b>${st.gols || 0}</b><span>Gols</span></div>
+               <div class="stat"><b>${st.assistencias || 0}</b><span>Assistências</span></div>`}
+          <div class="stat"><b>${st.titulos || 0}</b><span>Títulos 🏆</span></div>
         </div>
       </div>
 
@@ -1914,18 +2098,223 @@ async function renderProfile(userId) {
           <p class="sub" style="margin-bottom:10px">Atributos que compõem a cartinha e a nota geral <b class="ovr-mini" style="margin:0">${u.overall}</b>.</p>
           ${fifaBarsHtml(u)}
         </div>` : ''}
+      ${medals}`;
+  }
+
+  if (kind === 'tecnico') {
+    const st = u.stats || {};
+    const cats = arrVal(u.coachCategories);
+    const winRate = st.jogos > 0 ? Math.round(((st.vitorias || 0) / st.jogos) * 100) : null;
+    return `
+      <div class="section">
+        <h4>📋 Ficha do Treinador</h4>
+        <div class="row2" style="font-size:13px;line-height:1.7">
+          <div>
+            ${u.position ? `Função: <b>${esc(u.position)}</b><br>` : ''}
+            ${u.level ? `Nível: <b>${esc(u.level)}</b><br>` : ''}
+            ${u.licenses ? `Licença: <b>${esc(u.licenses)}</b><br>` : ''}
+          </div>
+          <div>
+            ${u.experienceYears ? `Experiência: <b>${u.experienceYears} anos</b><br>` : ''}
+            ${u.playstyle ? `Estilo: <b>${esc(u.playstyle)}</b><br>` : ''}
+            ${u.club ? `Equipe atual: <b>${esc(u.club)}</b><br>` : ''}
+          </div>
+        </div>
+        ${cats.length ? `<div class="pill-row mt">${cats.map(x => `<span class="pill">${esc(x)}</span>`).join('')}</div>` : ''}
+        ${u.teams ? `<p style="margin-top:10px;font-size:13px">Onde já trabalhou: <b>${esc(u.teams)}</b></p>` : ''}
+        ${u.strengths ? `<p style="margin-top:6px;font-size:13px">Pontos fortes: <b>${esc(u.strengths)}</b></p>` : ''}
+        ${u.methodology ? `<p style="margin-top:6px;font-size:13px">Metodologia: <b>${esc(u.methodology)}</b></p>` : ''}
+        <div style="margin-top:10px;font-size:13px;border-top:1px solid var(--border-glass);padding-top:8px">
+          ${u.availableHire ? 'Status: <b style="color:var(--neon-green)">Disponível para assumir equipe</b><br>' : ''}
+          ${u.availableFreela ? 'Projetos: <b style="color:var(--gold)">Aceita clínica / avaliação avulsa</b><br>' : ''}
+          ${u.fee ? `Pretensão: <b>${esc(u.fee)}</b>` : ''}
+        </div>
+      </div>
 
       <div class="section">
-        <h4>🏅 Conquistas & Medalhas (${earned.length}/${(achievements || []).length})</h4>
-        <div class="medal-grid">
-          ${(achievements || []).map(a => `
-            <div class="medal ${a.earned ? '' : 'locked'}">
-              <span class="m-emoji">${a.emoji}</span>
-              <b>${esc(a.title)}</b>
-              <span class="m-desc">${esc(a.desc)}</span>
-            </div>`).join('')}
+        <h4>📈 Números no Banco</h4>
+        <div class="stat-grid" style="grid-template-columns:repeat(3, 1fr);margin:8px 0">
+          <div class="stat"><b>${st.jogos || 0}</b><span>Jogos</span></div>
+          <div class="stat"><b>${st.vitorias || 0}</b><span>Vitórias</span></div>
+          <div class="stat"><b>${st.empates || 0}</b><span>Empates</span></div>
+          <div class="stat"><b>${st.titulos || 0}</b><span>Títulos 🏆</span></div>
+          <div class="stat"><b>${st.acessos || 0}</b><span>Acessos 📈</span></div>
+          <div class="stat"><b>${winRate === null ? '—' : winRate + '%'}</b><span>Aproveitamento</span></div>
         </div>
-      </div>` : ''}
+      </div>
+      ${medals}`;
+  }
+
+  if (kind === 'arbitro') {
+    const st = u.stats || {};
+    const mods = arrVal(u.modalities);
+    return `
+      <div class="section">
+        <h4>🟨 Ficha do Árbitro</h4>
+        <div class="row2" style="font-size:13px;line-height:1.7">
+          <div>
+            ${u.position ? `Função: <b>${esc(u.position)}</b><br>` : ''}
+            ${u.level ? `Quadro: <b>${esc(u.level)}</b><br>` : ''}
+            ${u.refEntity ? `Entidade: <b>${esc(u.refEntity)}</b><br>` : ''}
+          </div>
+          <div>
+            ${u.experienceYears ? `Experiência: <b>${u.experienceYears} anos</b><br>` : ''}
+            ${u.refRegions ? `Atua em: <b>${esc(u.refRegions)}</b><br>` : ''}
+            ${u.fee ? `Taxa: <b>${esc(u.fee)}</b><br>` : ''}
+          </div>
+        </div>
+        ${mods.length ? `<div class="pill-row mt">${mods.map(x => `<span class="pill">${esc(x)}</span>`).join('')}</div>` : ''}
+        ${u.strengths ? `<p style="margin-top:10px;font-size:13px">Pontos fortes: <b>${esc(u.strengths)}</b></p>` : ''}
+        <div style="margin-top:10px;font-size:13px;border-top:1px solid var(--border-glass);padding-top:8px">
+          ${u.availableHire ? 'Status: <b style="color:var(--neon-green)">Disponível para escalação</b><br>' : ''}
+          ${u.availableFreela ? 'Avulso: <b style="color:var(--gold)">Apita pelada / várzea</b>' : ''}
+        </div>
+      </div>
+
+      <div class="section">
+        <h4>📊 Números do Apito</h4>
+        <div class="stat-grid" style="grid-template-columns:repeat(3, 1fr);margin:8px 0">
+          <div class="stat"><b>${st.jogos || 0}</b><span>Jogos apitados</span></div>
+          <div class="stat"><b>${st.amarelos || 0}</b><span>Amarelos 🟨</span></div>
+          <div class="stat"><b>${st.vermelhos || 0}</b><span>Vermelhos 🟥</span></div>
+          <div class="stat"><b>${st.penaltisMarcados || 0}</b><span>Pênaltis 📣</span></div>
+          <div class="stat"><b>${st.finais || 0}</b><span>Finais 🏆</span></div>
+          <div class="stat"><b>${u.ratingAvg ? u.ratingAvg : '—'}</b><span>Média ⭐</span></div>
+        </div>
+      </div>
+      ${medals}`;
+  }
+
+  // olheiro / clube — perfil enxuto e com contatos à vista
+  const mods = arrVal(u.modalities);
+  const contacts = [
+    u.contactPhone ? { icon: '💬', label: 'WhatsApp / Telefone', value: u.contactPhone, href: 'https://wa.me/55' + u.contactPhone.replace(/\D/g, '') } : null,
+    u.contactInstagram ? { icon: '📸', label: 'Instagram', value: u.contactInstagram.replace(/^@/, ''), href: 'https://instagram.com/' + u.contactInstagram.replace(/^@/, '').replace(/\/$/, '') } : null,
+    (u.contactEmail || u.email) ? { icon: '✉️', label: 'E-mail', value: u.contactEmail || u.email, href: 'mailto:' + (u.contactEmail || u.email) } : null
+  ].filter(Boolean);
+
+  return `
+    <div class="section scout-card">
+      <div class="scout-head">
+        <span class="scout-badge">🔎 Olheiro / Clube</span>
+        <h4 style="margin:0">Quem está de olho em você</h4>
+        ${u.club ? `<p class="scout-club">🏛️ ${esc(u.club)}</p>` : ''}
+        ${u.scoutRole ? `<p class="scout-role">${esc(u.scoutRole)}</p>` : ''}
+      </div>
+      <div class="info-list">
+        ${u.city ? `<div><span>📍 Base</span><b>${esc(u.city)}${u.state ? '/' + esc(u.state) : ''}</b></div>` : ''}
+        ${u.scoutRegions ? `<div><span>🗺️ Regiões que avalia</span><b>${esc(u.scoutRegions)}</b></div>` : ''}
+        ${u.scoutPositions ? `<div><span>🎯 Posições que busca</span><b>${esc(u.scoutPositions)}</b></div>` : ''}
+        ${mods.length ? `<div><span>⚽ Modalidades</span><b>${mods.map(esc).join(' · ')}</b></div>` : ''}
+        ${u.verified ? `<div><span>✅ Selo</span><b style="color:var(--gold)">Olheiro verificado</b></div>` : ''}
+      </div>
+      ${contacts.length ? `
+        <div class="contact-list">
+          ${contacts.map(x => `
+            <a class="contact-row" href="${esc(x.href)}" target="_blank" rel="noopener">
+              <span class="ci">${x.icon}</span>
+              <span class="ct"><b>${x.label}</b><small>${esc(x.value)}</small></span>
+              <span class="ca">➜</span>
+            </a>`).join('')}
+        </div>` : `<p class="sub" style="margin:10px 0 0">Este olheiro ainda não publicou contatos.</p>`}
+      <p class="scout-note">Fale pelo chat do app ou pelos contatos acima. Toda visita sua fica registrada no perfil do atleta.</p>
+    </div>
+    ${medals}`;
+}
+
+async function renderProfile(userId) {
+  const c = $('#content');
+  c.innerHTML = '<p class="empty">Carregando perfil… ⚽</p>';
+  const { user: u, ratings, achievements } = await api('/users/' + userId);
+  const posts = await api('/posts?userId=' + userId);
+  const isFollowingRes = await api('/users/' + userId + '/is-following').catch(() => ({ following: false }));
+  const iFollow = isFollowingRes.following;
+  
+  window._lastProfile = { user: u, achievements: achievements || [] };
+  cachePosts(posts);
+  const mine = u.id === ME.id;
+  const kind = roleKind(u);
+  const videos = posts.filter(p => p.type === 'video').length;
+  const postsProf = posts.filter(p => p.category === 'profissional');
+  const postsPelada = posts.filter(p => p.category !== 'profissional');
+  const totalLikes = posts.reduce((s, p) => s + p.likes.length, 0);
+  const earned = (achievements || []).filter(a => a.earned);
+
+  c.innerHTML = `
+    ${!mine ? `<button class="back" onclick="showTab('${currentTab === 'profile' ? 'search' : currentTab}')">‹ Voltar</button>` : ''}
+    <div class="profile-head">
+      ${kind === 'olheiro' ? `<div class="scout-flag">🔎</div>`
+        : `<div class="overall-badge"><b>${u.overall}</b><span>${kind === 'jogador' ? 'OVR' : 'NVL'}</span></div>`}
+      ${mine ? `
+        <div class="upload-btn" style="display:inline-block">
+          ${avatarHtml(u, 'lg', false)}
+          <input type="file" accept="image/*" onchange="newProfilePhoto(this)">
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">toque para trocar a foto</div>
+        </div>` : avatarHtml(u, 'lg', false)}
+      <h3>${esc(u.name)} ${u.verified ? '✅' : ''}</h3>
+      ${u.nickname ? `<div class="nick">"${esc(u.nickname)}"</div>` : ''}
+      <div class="loc">${ROLES[u.role]?.emoji || ''} ${esc(u.position || ROLES[u.role]?.label || '')}${u.positions2 ? ' · também: ' + esc(u.positions2) : ''}</div>
+      <div class="loc">${kind === 'olheiro' && u.club ? '🏛️ ' + esc(u.club) + ' · ' : ''}${u.city ? '📍 ' + esc(u.city) + '/' + esc(u.state || '') : ''} ${u.level ? ' · ' + esc(u.level) : ''}</div>
+      <div style="margin-top:6px">${starsHtml(u.ratingAvg, u.ratingCount)}</div>
+
+      <div class="follow-row">
+        <span><b id="prof-followers">${u.followers}</b> seguidores</span>
+        <span><b>${u.following}</b> seguindo</span>
+        ${kind === 'olheiro' ? `<span><b>${u.scoutViewsGiven || 0}</b> atletas vistos</span>` : ''}
+      </div>
+
+      <div class="row2 mt" style="max-width:320px;margin-left:auto;margin-right:auto">
+        ${kind === 'jogador' ? `<button class="btn btn-gold btn-sm" onclick="openFifaCard()">🃏 Ver Card FIFA</button>` : ''}
+        <button class="btn btn-outline btn-sm" onclick="openResumePdf()">📄 ${kind === 'jogador' ? 'Currículo' : (kind === 'tecnico' ? 'Portfólio' : (kind === 'arbitro' ? 'Súmula' : 'Cartão de visita'))} PDF</button>
+      </div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat"><b>${posts.length}</b><span>Publicações</span></div>
+      <div class="stat"><b>${videos}</b><span>Vídeos</span></div>
+      <div class="stat"><b>${totalLikes}</b><span>Curtidas</span></div>
+    </div>
+
+    ${mine ? `
+      <div class="row2">
+        <button class="btn btn-green btn-sm" onclick="renderEditProfile()">✏️ Editar Perfil</button>
+        <button class="btn btn-outline btn-sm" onclick="openSecurityModal()">🔐 E-mail e Senha</button>
+        <button class="btn btn-primary btn-sm" onclick="shareProfile('${u.id}')">🔗 Compartilhar</button>
+      </div>
+      ${ME.isAdmin ? `
+        <button class="btn btn-primary btn-sm mt" style="width:100%" onclick="showTab('admin')">
+          🛡️ Acessar Painel do Administrador
+        </button>` : ''}
+      <button class="btn btn-danger btn-sm mt" style="width:100%" onclick="logout()">Sair da conta</button>` : kind === 'olheiro' ? `
+      <div class="row2">
+        <button class="btn btn-primary btn-sm" onclick="openChat('${u.id}', '${esc(u.name)}')">💬 Falar com o olheiro</button>
+        <button class="btn ${iFollow ? 'btn-outline' : 'btn-green'} btn-sm" id="btn-follow" onclick="toggleFollow('${u.id}')">${iFollow ? 'Seguindo' : '➕ Seguir'}</button>
+      </div>
+      <div class="row2 mt" style="margin-top:8px">
+        <button class="btn btn-outline btn-sm" onclick="openRating('${u.id}', '${esc(u.name)}')">⭐ Avaliar atendimento</button>
+        <button class="btn btn-outline btn-sm" onclick="shareProfile('${u.id}')">🔗 Compartilhar</button>
+      </div>` : `
+      <div class="row2">
+        <button class="btn btn-primary btn-sm" onclick="openProposal('${u.id}', '${esc(u.name)}')">${kind === 'arbitro' ? '🟨 Chamar para apitar' : (kind === 'tecnico' ? '📋 Chamar para comandar' : '🤝 Contratar / Chamar p/ jogo')}</button>
+        <button class="btn ${iFollow ? 'btn-outline' : 'btn-green'} btn-sm" id="btn-follow" onclick="toggleFollow('${u.id}')">${iFollow ? 'Seguindo' : '➕ Seguir'}</button>
+      </div>
+      <div class="row2 mt" style="margin-top:8px">
+        <button class="btn btn-outline btn-sm" onclick="openChat('${u.id}', '${esc(u.name)}')">💬 Mensagem privada</button>
+        <button class="btn btn-outline btn-sm" onclick="openRating('${u.id}', '${esc(u.name)}')">⭐ Avaliar ${kind === 'arbitro' ? 'arbitragem' : (kind === 'tecnico' ? 'trabalho' : 'atleta')}</button>
+      </div>`}
+
+    <!-- Seção de Jogos & Eventos Criados pelo Usuário -->
+    <div class="section" id="profile-events-section" style="margin-top:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h4 style="margin:0">📍 Jogos & Peneiras Criados</h4>
+        ${mine ? `<button class="btn btn-primary btn-xs" onclick="openNewEvent()">➕ Criar Jogo</button>` : ''}
+      </div>
+      <div id="profile-events-list"><p class="empty" style="padding:12px">Carregando jogos do perfil… ⏳</p></div>
+    </div>
+
+    ${u.bio ? `<div class="section"><h4>📖 Sobre</h4><p>${esc(u.bio)}</p></div>` : ''}
+
+    ${profileRoleSections(u, earned, achievements)}
 
     <div class="section">
       <div class="profile-view-toggle">
@@ -2106,21 +2495,57 @@ async function adminDeleteUserFromProfile(id, name) {
 }
 
 // ---------- Editar Perfil ----------
-function renderEditProfile(first = false) {
-  if (!$('#content')) { renderShell(); }
-  const c = $('#content');
-  const u = ME;
+// ---------- Editar Perfil (campos específicos por tipo de usuário) ----------
+function chipRowHtml(name, items, selected, multi = false) {
+  const sel = arrVal(selected);
+  return `
+    <input type="hidden" id="ec-${name}" value="${esc(sel.join(', '))}">
+    <div class="chip-row" data-chip="${name}" data-multi="${multi ? 1 : 0}">
+      ${items.map(v => `<button type="button" class="chip ${sel.includes(v) ? 'on' : ''}" onclick="toggleEditChip(this)">${esc(v)}</button>`).join('')}
+    </div>`;
+}
+
+function toggleEditChip(btn) {
+  const row = btn.closest('.chip-row');
+  if (!row) return;
+  const multi = row.dataset.multi === '1';
+  if (!multi) row.querySelectorAll('.chip').forEach(c => { if (c !== btn) c.classList.remove('on'); });
+  btn.classList.toggle('on');
+  const vals = [...row.querySelectorAll('.chip.on')].map(c => c.textContent.trim());
+  const hid = document.getElementById('ec-' + row.dataset.chip);
+  if (hid) hid.value = vals.join(', ');
+}
+
+function val(id) { const el = document.getElementById(id); return el ? el.value : ''; }
+function checked(id) { const el = document.getElementById(id); return !!(el && el.checked); }
+function chipVal(name) { return val('ec-' + name).split(',').map(s => s.trim()).filter(Boolean); }
+
+function playerFields(u) {
   const isGK = isGoalkeeper(u);
-  c.innerHTML = `
-    ${first ? '<h2>Complete seu perfil ⚽</h2><p class="sub">É isso que os olheiros e organizadores vão ver!</p>' : `<button class="back" onclick="showTab('profile')">‹ Voltar</button><h2>Editar perfil ✏️</h2>`}
-    <label>Nome</label><input id="e-name" value="${esc(u.name)}">
-    <label>Apelido / nome de campo</label><input id="e-nick" value="${esc(u.nickname || '')}" placeholder='Ex: "Foguinho", "Paredão"'>
-    ${u.role !== 'olheiro' ? `
-      <label>Posição principal</label>
-      <select id="e-pos">${POSITIONS.map(p => `<option ${u.position === p ? 'selected' : ''}>${p}</option>`).join('')}</select>
-      <label>Outras posições que joga (opcional)</label><input id="e-pos2" value="${esc(u.positions2 || '')}" placeholder="Ex: Meia, Ponta esquerda, Fixo">
-      <label>Nível</label>
-      <select id="e-level"><option value="">Selecione…</option>${LEVELS.map(l => `<option ${u.level === l ? 'selected' : ''}>${l}</option>`).join('')}</select>
+  const attrs = isGK ? FIFA_ATTRS_GK : FIFA_ATTRS;
+  return `
+    <div class="form-sec">
+      <h4>⚽ Dentro de campo</h4>
+      <label>Posição principal ${isGK ? '<span class="tag-gk">🧤 goleiro</span>' : ''}</label>
+      ${POS_GROUPS.map(g => `
+        <div class="chip-group">
+          <h5>${g.label}</h5>
+          <div class="chip-row" data-chip="pos" data-multi="0">
+            ${g.items.map(p => `<button type="button" class="chip ${u.position === p ? 'on' : ''}" onclick="toggleEditChip(this)">${p}</button>`).join('')}
+          </div>
+        </div>`).join('')}
+      <input type="hidden" id="ec-pos" value="${esc(u.position || '')}">
+      <label>Outras posições que joga <span class="opt">(opcional)</span></label>
+      <input id="e-pos2" value="${esc(u.positions2 || '')}" placeholder="Ex: Meia, Ponta esquerda">
+      <div class="row2">
+        <div><label>Nível</label>
+          <select id="e-level"><option value="">Selecione…</option>${LEVELS.map(l => `<option ${u.level === l ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <div><label>Nº da camisa</label><input id="e-shirt" type="number" min="1" max="99" value="${u.shirtNumber ?? ''}" placeholder="10"></div>
+      </div>
+    </div>
+
+    <div class="form-sec">
+      <h4>📏 Corpo &amp; origem</h4>
       <div class="row2">
         <div><label>Idade</label><input id="e-age" type="number" value="${u.age ?? ''}" placeholder="22"></div>
         <div><label>Altura (cm)</label><input id="e-height" type="number" value="${u.height ?? ''}" placeholder="178"></div>
@@ -2128,97 +2553,359 @@ function renderEditProfile(first = false) {
       <div class="row2">
         <div><label>Peso (kg)</label><input id="e-weight" type="number" value="${u.weight ?? ''}" placeholder="72"></div>
         <div><label>Perna boa</label>
-          <select id="e-foot"><option value="">—</option>${['Destro','Canhoto','Ambidestro'].map(f => `<option ${u.foot === f ? 'selected' : ''}>${f}</option>`).join('')}</select>
-        </div>
+          <select id="e-foot"><option value="">—</option>${['Destro', 'Canhoto', 'Ambidestro'].map(f => `<option ${u.foot === f ? 'selected' : ''}>${f}</option>`).join('')}</select></div>
       </div>
-      <label>Times por onde passou</label><input id="e-teams" value="${esc(u.teams || '')}" placeholder="Ex: Juína EC, Operário VG">
-      <label>Pontos fortes (separados por vírgula)</label><input id="e-strengths" value="${esc(u.strengths || '')}" placeholder="Ex: velocidade, drible, cabeceio, defesa de pênalti">
-      
-      <h2 style="font-size:16px;margin-top:18px;color:var(--gold)">🪪 Informações Pessoais</h2>
-      <p class="sub" style="margin-bottom:4px">Dados sobre você que aparecem no seu perfil e na cartinha FIFA:</p>
       <div class="row2">
         <div><label>Nacionalidade</label><input id="e-nation" value="${esc(u.nationality || '')}" placeholder="Brasil"></div>
         <div><label>Data de nascimento</label><input id="e-birth" type="date" value="${esc(u.birthdate || '')}"></div>
       </div>
-      <div class="row2">
-        <div><label>Clube atual</label><input id="e-club" value="${esc(u.club || '')}" placeholder="Ex: Palmeiras"></div>
-        <div><label>Nº da camisa</label><input id="e-shirt" type="number" min="1" max="99" value="${u.shirtNumber ?? ''}" placeholder="10"></div>
-      </div>
+      <label>Clube atual</label><input id="e-club" value="${esc(u.club || '')}" placeholder="Ex: Palmeiras">
+      <label>Times por onde passou</label><input id="e-teams" value="${esc(u.teams || '')}" placeholder="Ex: Juína EC, Operário VG">
+      <label>Pontos fortes <span class="opt">(separados por vírgula)</span></label>
+      <input id="e-strengths" value="${esc(u.strengths || '')}" placeholder="${isGK ? 'Ex: saída de gol, reposição, defesa de pênalti' : 'Ex: velocidade, drible, cabeceio'}">
+    </div>
 
-      <h2 style="font-size:16px;margin-top:18px;color:var(--gold)">🎮 Atributos FIFA (1–99)</h2>
-      <p class="sub" style="margin-bottom:4px">Esses atributos definem sua nota geral (OVR) na cartinha FIFA:</p>
+    <div class="form-sec">
+      <h4>🎮 Atributos FIFA <span class="opt">(1–99)</span></h4>
+      <p class="sec-hint">Definem sua nota geral <b class="ovr-mini">OVR</b> na cartinha.</p>
       <div class="fifa-attr-grid">
-        ${(isGK ? FIFA_ATTRS_GK : FIFA_ATTRS).map(a => `
+        ${attrs.map(a => `
           <div class="fifa-attr-field">
             <label>${a.icon} ${a.name} (${a.label})</label>
             <input id="fa-${a.key}" type="number" min="1" max="99" value="${u.fifa?.[a.key] ?? ''}" placeholder="60">
           </div>`).join('')}
       </div>
-      
-      <h2 style="font-size:16px;margin-top:18px;color:var(--gold)">📊 Estatísticas de carreira</h2>
-      <p class="sub" style="margin-bottom:4px">Seus números nos campos, society e quadras:</p>
+    </div>
+
+    <div class="form-sec">
+      <h4>📊 ${isGK ? 'Números da carreira 🧤' : 'Números da carreira'}</h4>
       <div class="row2">
         <div><label>Jogos disputados</label><input id="st-jogos" type="number" min="0" value="${u.stats?.jogos ?? ''}" placeholder="0"></div>
-        <div><label>Gols marcados</label><input id="st-gols" type="number" min="0" value="${u.stats?.gols ?? ''}" placeholder="0"></div>
+        ${isGK
+          ? `<div><label>Defesas</label><input id="st-defesas" type="number" min="0" value="${u.stats?.defesas ?? ''}" placeholder="0"></div>`
+          : `<div><label>Gols marcados</label><input id="st-gols" type="number" min="0" value="${u.stats?.gols ?? ''}" placeholder="0"></div>`}
       </div>
       <div class="row2">
-        <div><label>Assistências</label><input id="st-assist" type="number" min="0" value="${u.stats?.assistencias ?? ''}" placeholder="0"></div>
+        ${isGK
+          ? `<div><label>Pênaltis defendidos</label><input id="st-pen" type="number" min="0" value="${u.stats?.penaltisDefendidos ?? ''}" placeholder="0"></div>`
+          : `<div><label>Assistências</label><input id="st-assist" type="number" min="0" value="${u.stats?.assistencias ?? ''}" placeholder="0"></div>`}
+        <div><label>Títulos</label><input id="st-titulos" type="number" min="0" value="${u.stats?.titulos ?? ''}" placeholder="0"></div>
+      </div>
+    </div>
+
+    <div class="form-sec">
+      <h4>🤝 Disponibilidade</h4>
+      <label class="check"><input type="checkbox" id="e-hire" ${u.availableHire ? 'checked' : ''}> ✅ Disponível para contratação</label>
+      <label class="check"><input type="checkbox" id="e-freela" ${u.availableFreela ? 'checked' : ''}> ⚡ Aceito jogo avulso (freela)</label>
+      <label>Cachê por jogo <span class="opt">(opcional)</span></label>
+      <input id="e-fee" value="${esc(u.fee || '')}" placeholder="Ex: R$ 120/jogo">
+    </div>`;
+}
+
+function coachFields(u) {
+  return `
+    <div class="form-sec">
+      <h4>📋 Comando técnico</h4>
+      <label>Sua função</label>
+      ${chipRowHtml('spec', COACH_SPECIALTIES, u.position || u.specialty, false)}
+      <label>Categorias que treina</label>
+      ${chipRowHtml('cats', COACH_CATEGORIES, u.coachCategories, true)}
+      <div class="row2">
+        <div><label>Nível de atuação</label>
+          <select id="e-level"><option value="">Selecione…</option>${COACH_LEVELS.map(l => `<option ${u.level === l ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <div><label>Anos de experiência</label><input id="e-exp" type="number" min="0" value="${u.experienceYears ?? ''}" placeholder="8"></div>
+      </div>
+      <label>Licença / formação</label>
+      <select id="e-licenses"><option value="">Selecione…</option>${COACH_LICENSES.map(l => `<option ${u.licenses === l ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <label>Estilo de jogo</label>
+      ${chipRowHtml('style', PLAYSTYLES, u.playstyle, false)}
+    </div>
+
+    <div class="form-sec">
+      <h4>🏟️ Trajetória</h4>
+      <label>Clube ou equipe atual</label><input id="e-club" value="${esc(u.club || '')}" placeholder="Ex: EC Operário">
+      <label>Onde já trabalhou</label><input id="e-teams" value="${esc(u.teams || '')}" placeholder="Ex: Sub-17 do Mixto, Amador do CPA">
+      <label>Metodologia / formação</label>
+      <textarea id="e-method" rows="3" placeholder="Ex: Curso CBF C, trabalho com saída de bola curta e pressão pós-perda…">${esc(u.methodology || '')}</textarea>
+      <label>Pontos fortes do seu trabalho</label><input id="e-strengths" value="${esc(u.strengths || '')}" placeholder="Ex: organização defensiva, gestão de grupo, bola parada">
+    </div>
+
+    <div class="form-sec">
+      <h4>📈 Números no banco</h4>
+      <p class="sec-hint">Sem gols aqui — só o que o treinador assina embaixo.</p>
+      <div class="row2">
+        <div><label>Jogos no comando</label><input id="st-jogos" type="number" min="0" value="${u.stats?.jogos ?? ''}" placeholder="0"></div>
+        <div><label>Vitórias</label><input id="st-vitorias" type="number" min="0" value="${u.stats?.vitorias ?? ''}" placeholder="0"></div>
+      </div>
+      <div class="row2">
+        <div><label>Empates</label><input id="st-empates" type="number" min="0" value="${u.stats?.empates ?? ''}" placeholder="0"></div>
         <div><label>Títulos</label><input id="st-titulos" type="number" min="0" value="${u.stats?.titulos ?? ''}" placeholder="0"></div>
       </div>
       <div class="row2">
-        <div><label>🧤 Defesas (goleiro)</label><input id="st-defesas" type="number" min="0" value="${u.stats?.defesas ?? ''}" placeholder="0"></div>
-        <div><label>🧤 Pênaltis defendidos</label><input id="st-pen" type="number" min="0" value="${u.stats?.penaltisDefendidos ?? ''}" placeholder="0"></div>
-      </div>` : ''}
-    <div class="row2">
-      <div><label>Cidade</label><input id="e-city" value="${esc(u.city || '')}" placeholder="São Paulo"></div>
-      <div><label>Estado (UF)</label><input id="e-state" value="${esc(u.state || '')}" placeholder="SP" maxlength="2"></div>
+        <div><label>Acessos / subidas</label><input id="st-acessos" type="number" min="0" value="${u.stats?.acessos ?? ''}" placeholder="0"></div>
+        <div></div>
+      </div>
     </div>
-    <label>Sobre você (bio)</label>
-    <textarea id="e-bio" rows="3" placeholder="Conte sua história no futebol…">${esc(u.bio || '')}</textarea>
-    ${u.role !== 'olheiro' ? `
-      <label class="check mt"><input type="checkbox" id="e-hire" ${u.availableHire ? 'checked' : ''}> ✅ Disponível para contratação</label>
-      <label class="check"><input type="checkbox" id="e-freela" ${u.availableFreela ? 'checked' : ''}> ⚡ Disponível para jogo avulso (freela)</label>
-      <label>Cachê por jogo (opcional, p/ freela)</label><input id="e-fee" value="${esc(u.fee || '')}" placeholder="Ex: R$ 120/jogo">` : ''}
-    <button class="btn btn-primary mt" onclick="saveProfile(${first})">💾 Salvar Perfil</button>`;
+
+    <div class="form-sec">
+      <h4>🤝 Disponibilidade</h4>
+      <label class="check"><input type="checkbox" id="e-hire" ${u.availableHire !== false ? 'checked' : ''}> ✅ Disponível para assumir equipe</label>
+      <label class="check"><input type="checkbox" id="e-freela" ${u.availableFreela ? 'checked' : ''}> ⚡ Aceito projeto avulso (clínica, avaliação)</label>
+      <label>Pretensão / cachê <span class="opt">(opcional)</span></label>
+      <input id="e-fee" value="${esc(u.fee || '')}" placeholder="Ex: R$ 3.000/mês">
+    </div>`;
+}
+
+function refereeFields(u) {
+  return `
+    <div class="form-sec">
+      <h4>🟨 Arbitragem</h4>
+      <label>Função em campo</label>
+      ${chipRowHtml('func', REF_FUNCTIONS, u.position, false)}
+      <div class="row2">
+        <div><label>Quadro / nível</label>
+          <select id="e-reflevel"><option value="">Selecione…</option>${REF_LEVELS.map(l => `<option ${u.level === l ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <div><label>Anos de apito</label><input id="e-exp" type="number" min="0" value="${u.experienceYears ?? ''}" placeholder="5"></div>
+      </div>
+      <label>Entidade / federação</label>
+      <select id="e-refentity"><option value="">Selecione…</option>${REF_ENTITIES.map(l => `<option ${u.refEntity === l ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <label>Modalidades que apita</label>
+      ${chipRowHtml('mods', MODALITY_CHIPS.map(m => m.label), arrVal(u.modalities), true)}
+      <label>Região de atuação</label><input id="e-refregions" value="${esc(u.refRegions || '')}" placeholder="Ex: Cuiabá e Várzea Grande">
+      <label>Pontos fortes</label><input id="e-strengths" value="${esc(u.strengths || '')}" placeholder="Ex: posicionamento, controle de jogo, preparo físico">
+    </div>
+
+    <div class="form-sec">
+      <h4>📊 Números do apito</h4>
+      <div class="row2">
+        <div><label>Jogos apitados</label><input id="st-jogos" type="number" min="0" value="${u.stats?.jogos ?? ''}" placeholder="0"></div>
+        <div><label>Cartões amarelos</label><input id="st-amarelos" type="number" min="0" value="${u.stats?.amarelos ?? ''}" placeholder="0"></div>
+      </div>
+      <div class="row2">
+        <div><label>Cartões vermelhos</label><input id="st-vermelhos" type="number" min="0" value="${u.stats?.vermelhos ?? ''}" placeholder="0"></div>
+        <div><label>Pênaltis marcados</label><input id="st-penmarc" type="number" min="0" value="${u.stats?.penaltisMarcados ?? ''}" placeholder="0"></div>
+      </div>
+      <div class="row2">
+        <div><label>Finais apitadas</label><input id="st-finais" type="number" min="0" value="${u.stats?.finais ?? ''}" placeholder="0"></div>
+        <div></div>
+      </div>
+    </div>
+
+    <div class="form-sec">
+      <h4>🤝 Disponibilidade</h4>
+      <label class="check"><input type="checkbox" id="e-hire" ${u.availableHire !== false ? 'checked' : ''}> ✅ Disponível para escalação</label>
+      <label class="check"><input type="checkbox" id="e-freela" ${u.availableFreela ? 'checked' : ''}> ⚡ Apito pelada / várzea avulsa</label>
+      <label>Taxa por jogo <span class="opt">(opcional)</span></label>
+      <input id="e-fee" value="${esc(u.fee || '')}" placeholder="Ex: R$ 150 + transporte">
+    </div>`;
+}
+
+function scoutFields(u) {
+  return `
+    <div class="form-sec">
+      <h4>🔎 Quem é você</h4>
+      <label>Clube, empresa ou agência</label><input id="e-club" value="${esc(u.club || '')}" placeholder="Ex: EC Juventude">
+      <label>Seu cargo</label>
+      ${chipRowHtml('srole', SCOUT_ROLES, u.scoutRole || u.position, false)}
+      <div class="row2">
+        <div><label>Cidade</label><input id="e-city2" value="${esc(u.city || '')}" placeholder="São Paulo"></div>
+        <div><label>Estado (UF)</label><input id="e-state2" value="${esc(u.state || '')}" placeholder="SP" maxlength="2"></div>
+      </div>
+    </div>
+
+    <div class="form-sec">
+      <h4>🎯 O que procura</h4>
+      <label>Modalidades de interesse</label>
+      ${chipRowHtml('mods', MODALITY_CHIPS.map(m => m.label), arrVal(u.modalities), true)}
+      <label>Posições que busca</label><input id="e-spos" value="${esc(u.scoutPositions || '')}" placeholder="Ex: Lateral esquerdo, Centroavante, Goleiro">
+      <label>Regiões que avalia</label><input id="e-sreg" value="${esc(u.scoutRegions || '')}" placeholder="Ex: Mato Grosso, interior de SP">
+    </div>
+
+    <div class="form-sec">
+      <h4>📞 Contatos públicos</h4>
+      <p class="sec-hint">Aparecem no seu perfil para os atletas falarem com você.</p>
+      <label>WhatsApp / telefone</label><input id="e-phone" value="${esc(u.contactPhone || '')}" placeholder="(65) 99999-0000" inputmode="tel">
+      <div class="row2">
+        <div><label>Instagram</label><input id="e-ig" value="${esc(u.contactInstagram || '')}" placeholder="@seu_clube"></div>
+        <div><label>E-mail de contato</label><input id="e-cmail" type="email" value="${esc(u.contactEmail || u.email || '')}" placeholder="olheiro@clube.com"></div>
+      </div>
+      <label class="check mt"><input type="checkbox" id="e-public" ${u.publicProfile !== false ? 'checked' : ''}> 🌐 Meu perfil aparece na busca de atletas</label>
+    </div>`;
+}
+
+function renderEditProfile(first = false) {
+  if (!$('#content')) { renderShell(); }
+  const c = $('#content');
+  const u = ME;
+  const kind = roleKind(u);
+  const r = signupRole(kind === 'jogador' && u.role === 'goleiro' ? 'jogador' : kind);
+  const accent = { jogador: 'green', tecnico: 'cyan', arbitro: 'gold', olheiro: 'rose' }[kind] || 'green';
+
+  const body = kind === 'tecnico' ? coachFields(u)
+    : kind === 'arbitro' ? refereeFields(u)
+    : kind === 'olheiro' ? scoutFields(u)
+    : playerFields(u);
+
+  const cityBlock = kind === 'olheiro' ? '' : `
+    <div class="form-sec">
+      <h4>📍 Onde você joga</h4>
+      <div class="row2">
+        <div><label>Cidade</label><input id="e-city" value="${esc(u.city || '')}" placeholder="São Paulo"></div>
+        <div><label>Estado (UF)</label><input id="e-state" value="${esc(u.state || '')}" placeholder="SP" maxlength="2"></div>
+      </div>
+    </div>`;
+
+  const bioBlock = `
+    <div class="form-sec">
+      <h4>📖 Sobre você</h4>
+      <textarea id="e-bio" rows="3" placeholder="${kind === 'olheiro'
+        ? 'Conte como você trabalha e o que oferece aos atletas…'
+        : 'Conte sua história no futebol…'}">${esc(u.bio || '')}</textarea>
+    </div>`;
+
+  c.innerHTML = `
+    ${first
+      ? `<div class="edit-hero"><span class="eh-emoji">${r.emoji}</span><h2>Complete seu perfil</h2><p>Só o que importa para <b>${r.label.toLowerCase()}</b> — o resto você pode pular.</p></div>`
+      : `<button class="back" onclick="showTab('profile')">‹ Voltar</button><h2>Editar perfil ✏️</h2>`}
+    <div class="role-banner acc-${accent}">${r.emoji} ${ROLES[u.role]?.label || r.label}<span class="rb-hint">ficha de ${r.label.toLowerCase()}</span></div>
+    <div class="form-card">
+      <div class="form-sec">
+        <h4>👤 Identificação</h4>
+        <label>${kind === 'olheiro' ? 'Nome do responsável' : 'Nome'}</label><input id="e-name" value="${esc(u.name)}">
+        ${kind === 'olheiro' ? '' : `<label>Apelido / nome de campo</label><input id="e-nick" value="${esc(u.nickname || '')}" placeholder='Ex: "Foguinho", "Paredão"'>`}
+      </div>
+      ${body}
+      ${cityBlock}
+      ${bioBlock}
+    </div>
+    <div id="e-err" class="err"></div>
+    <button class="btn btn-primary btn-lg mt" onclick="saveProfile(${first})">💾 Salvar perfil</button>
+    ${first ? `<button class="btn btn-outline mt" style="width:100%" onclick="skipProfileSetup()">Pular por enquanto</button>` : ''}`;
+  window.scrollTo({ top: 0 });
+}
+
+function skipProfileSetup() {
+  enterApp();
+  toast('Sem problema — complete o perfil quando quiser. 😉');
 }
 
 async function saveProfile(first) {
-  const body = {
-    name: $('#e-name').value.trim(), nickname: $('#e-nick').value.trim(),
-    city: $('#e-city').value.trim(), state: $('#e-state').value.trim().toUpperCase(),
-    bio: $('#e-bio').value.trim()
-  };
-  if (ME.role !== 'olheiro') {
-    Object.assign(body, {
-      position: $('#e-pos').value, positions2: $('#e-pos2').value.trim(),
-      level: $('#e-level').value, age: +$('#e-age').value || null,
-      height: +$('#e-height').value || null, weight: +$('#e-weight').value || null,
-      foot: $('#e-foot').value, teams: $('#e-teams').value.trim(),
-      strengths: $('#e-strengths').value.trim(),
-      nationality: $('#e-nation').value.trim(), birthdate: $('#e-birth').value,
-      club: $('#e-club').value.trim(), shirtNumber: +$('#e-shirt').value || null,
-      availableHire: $('#e-hire').checked, availableFreela: $('#e-freela').checked,
-      fee: $('#e-fee').value.trim()
-    });
-    const stats = {
-      jogos: $('#st-jogos').value, gols: $('#st-gols').value,
-      assistencias: $('#st-assist').value, titulos: $('#st-titulos').value,
-      defesas: $('#st-defesas').value, penaltisDefendidos: $('#st-pen').value
-    };
-    await api('/me/stats', { method: 'PUT', body: stats });
+  const kind = roleKind(ME);
+  const err = document.getElementById('e-err');
+  if (err) err.textContent = '';
 
-    const isGK = ME.role === 'goleiro' || $('#e-pos').value === 'Goleiro';
-    const fifaSet = isGK ? FIFA_ATTRS_GK : FIFA_ATTRS;
-    const fifa = {};
-    fifaSet.forEach(a => {
-      const v = document.getElementById('fa-' + a.key)?.value;
-      if (v !== undefined && v !== '') fifa[a.key] = parseInt(v, 10) || 0;
+  const body = {
+    name: val('e-name').trim(),
+    nickname: val('e-nick').trim(),
+    city: val(kind === 'olheiro' ? 'e-city2' : 'e-city').trim(),
+    state: val(kind === 'olheiro' ? 'e-state2' : 'e-state').trim().toUpperCase(),
+    bio: val('e-bio').trim()
+  };
+  if (!body.name) { if (err) err.textContent = 'Digite seu nome.'; return; }
+
+  let stats = null;
+  let fifa = null;
+
+  if (kind === 'jogador') {
+    Object.assign(body, {
+      position: chipVal('pos')[0] || ME.position || '',
+      positions2: val('e-pos2').trim(),
+      level: val('e-level'),
+      age: +val('e-age') || null,
+      height: +val('e-height') || null,
+      weight: +val('e-weight') || null,
+      foot: val('e-foot'),
+      teams: val('e-teams').trim(),
+      strengths: val('e-strengths').trim(),
+      nationality: val('e-nation').trim(),
+      birthdate: val('e-birth'),
+      club: val('e-club').trim(),
+      shirtNumber: +val('e-shirt') || null,
+      availableHire: checked('e-hire'),
+      availableFreela: checked('e-freela'),
+      fee: val('e-fee').trim()
     });
-    if (Object.keys(fifa).length) await api('/me/fifa', { method: 'PUT', body: fifa });
+    const isGK = body.position === 'Goleiro' || ME.role === 'goleiro';
+    stats = isGK
+      ? { jogos: val('st-jogos'), defesas: val('st-defesas'), penaltisDefendidos: val('st-pen'), titulos: val('st-titulos') }
+      : { jogos: val('st-jogos'), gols: val('st-gols'), assistencias: val('st-assist'), titulos: val('st-titulos') };
+    const attrSet = isGK ? FIFA_ATTRS_GK : FIFA_ATTRS;
+    fifa = {};
+    attrSet.forEach(a => {
+      const v = val('fa-' + a.key);
+      if (v !== '') fifa[a.key] = parseInt(v, 10) || 0;
+    });
   }
-  ME = await api('/me/profile', { method: 'PUT', body });
-  toast('Perfil salvo com sucesso! ✅');
-  if (first) enterApp(); else showTab('profile');
+
+  if (kind === 'tecnico') {
+    Object.assign(body, {
+      position: chipVal('spec')[0] || 'Técnico',
+      level: val('e-level'),
+      licenses: val('e-licenses'),
+      experienceYears: +val('e-exp') || null,
+      playstyle: chipVal('style')[0] || '',
+      coachCategories: chipVal('cats'),
+      club: val('e-club').trim(),
+      teams: val('e-teams').trim(),
+      methodology: val('e-method').trim(),
+      strengths: val('e-strengths').trim(),
+      availableHire: checked('e-hire'),
+      availableFreela: checked('e-freela'),
+      fee: val('e-fee').trim()
+    });
+    stats = {
+      jogos: val('st-jogos'), vitorias: val('st-vitorias'), empates: val('st-empates'),
+      titulos: val('st-titulos'), acessos: val('st-acessos')
+    };
+  }
+
+  if (kind === 'arbitro') {
+    Object.assign(body, {
+      position: chipVal('func')[0] || 'Árbitro Central',
+      level: val('e-reflevel'),
+      refEntity: val('e-refentity'),
+      experienceYears: +val('e-exp') || null,
+      modalities: chipVal('mods'),
+      refRegions: val('e-refregions').trim(),
+      strengths: val('e-strengths').trim(),
+      availableHire: checked('e-hire'),
+      availableFreela: checked('e-freela'),
+      fee: val('e-fee').trim()
+    });
+    stats = {
+      jogos: val('st-jogos'), amarelos: val('st-amarelos'), vermelhos: val('st-vermelhos'),
+      penaltisMarcados: val('st-penmarc'), finais: val('st-finais')
+    };
+  }
+
+  if (kind === 'olheiro') {
+    Object.assign(body, {
+      club: val('e-club').trim(),
+      scoutRole: chipVal('srole')[0] || 'Olheiro',
+      position: chipVal('srole')[0] || 'Olheiro',
+      modalities: chipVal('mods'),
+      scoutPositions: val('e-spos').trim(),
+      scoutRegions: val('e-sreg').trim(),
+      contactPhone: val('e-phone').trim(),
+      contactInstagram: val('e-ig').trim(),
+      contactEmail: val('e-cmail').trim(),
+      publicProfile: checked('e-public')
+    });
+  }
+
+  const btn = document.querySelector('#content .btn-lg');
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvando… ⏳'; }
+  try {
+    if (stats) await api('/me/stats', { method: 'PUT', body: stats });
+    if (fifa && Object.keys(fifa).length) await api('/me/fifa', { method: 'PUT', body: fifa });
+    ME = await api('/me/profile', { method: 'PUT', body });
+    toast('Perfil salvo com sucesso! ✅');
+    if (first) enterApp(); else showTab('profile');
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Salvar perfil'; }
+    if (err) err.textContent = e.message;
+    else toast('Erro: ' + e.message);
+  }
 }
 
 // ============================================================
@@ -2593,6 +3280,8 @@ async function renderAdminUsers(c) {
       <button class="admin-pill ${_adminUserRole === 'verified' ? 'on' : ''}" onclick="_adminUserRole='verified'; drawAdminUsersList();">✅ Verificados</button>
       <button class="admin-pill ${_adminUserRole === 'jogador' ? 'on' : ''}" onclick="_adminUserRole='jogador'; drawAdminUsersList();">🏃 Jogadores</button>
       <button class="admin-pill ${_adminUserRole === 'goleiro' ? 'on' : ''}" onclick="_adminUserRole='goleiro'; drawAdminUsersList();">🧤 Goleiros</button>
+      <button class="admin-pill ${_adminUserRole === 'tecnico' ? 'on' : ''}" onclick="_adminUserRole='tecnico'; drawAdminUsersList();">📋 Técnicos</button>
+      <button class="admin-pill ${_adminUserRole === 'arbitro' ? 'on' : ''}" onclick="_adminUserRole='arbitro'; drawAdminUsersList();">🟨 Árbitros</button>
       <button class="admin-pill ${_adminUserRole === 'olheiro' ? 'on' : ''}" onclick="_adminUserRole='olheiro'; drawAdminUsersList();">🔎 Olheiros</button>
     </div>
     <div id="au-list-container"></div>`;
@@ -3024,15 +3713,115 @@ async function openFifaCard() {
   document.body.appendChild(bg);
 }
 
+// ---------- Corpo do currículo/PDF: específico por tipo de usuário ----------
+function resumeBodyHtml(u) {
+  const st = u.stats || {};
+  const kind = roleKind(u);
+  const table = (heads, cells) => `<table><tr>${heads.map(h => `<th>${h}</th>`).join('')}</tr><tr>${cells.map(c => `<td>${c}</td>`).join('')}</tr></table>`;
+
+  if (kind === 'tecnico') {
+    const cats = arrVal(u.coachCategories);
+    return `
+      <h2>📋 Dados do Treinador</h2>
+      <p>
+        ${u.position ? `Função: <b>${esc(u.position)}</b> · ` : ''}
+        ${u.level ? `Nível: <b>${esc(u.level)}</b> · ` : ''}
+        ${u.experienceYears ? `Experiência: <b>${u.experienceYears} anos</b> · ` : ''}
+        ${u.licenses ? `Licença: <b>${esc(u.licenses)}</b>` : ''}
+      </p>
+      <p>
+        ${u.playstyle ? `Estilo de jogo: <b>${esc(u.playstyle)}</b> · ` : ''}
+        ${u.club ? `Equipe atual: <b>${esc(u.club)}</b> · ` : ''}
+        ${u.fee ? `Pretensão: <b>${esc(u.fee)}</b>` : ''}
+      </p>
+      ${cats.length ? `<p>Categorias: ${cats.map(c => `<span class="pill">${esc(c)}</span>`).join(' ')}</p>` : ''}
+      ${u.teams ? `<p>Onde já trabalhou: <b>${esc(u.teams)}</b></p>` : ''}
+      ${u.strengths ? `<p>Pontos fortes: <b>${esc(u.strengths)}</b></p>` : ''}
+      ${u.methodology ? `<h2>🎓 Metodologia &amp; Formação</h2><p>${esc(u.methodology)}</p>` : ''}
+      ${u.bio ? `<h2>📖 Sobre</h2><p>${esc(u.bio)}</p>` : ''}
+      <h2>📈 Números no Banco</h2>
+      ${table(['Jogos', 'Vitórias', 'Empates', 'Títulos', 'Acessos', 'Média ⭐'],
+        [st.jogos || 0, st.vitorias || 0, st.empates || 0, st.titulos || 0, st.acessos || 0, u.ratingAvg || '—'])}`;
+  }
+
+  if (kind === 'arbitro') {
+    const mods = arrVal(u.modalities);
+    return `
+      <h2>🟨 Dados do Árbitro</h2>
+      <p>
+        ${u.position ? `Função: <b>${esc(u.position)}</b> · ` : ''}
+        ${u.level ? `Quadro: <b>${esc(u.level)}</b> · ` : ''}
+        ${u.experienceYears ? `Experiência: <b>${u.experienceYears} anos</b> · ` : ''}
+        ${u.refEntity ? `Entidade: <b>${esc(u.refEntity)}</b>` : ''}
+      </p>
+      <p>
+        ${u.refRegions ? `Atua em: <b>${esc(u.refRegions)}</b> · ` : ''}
+        ${u.fee ? `Taxa por jogo: <b>${esc(u.fee)}</b>` : ''}
+      </p>
+      ${mods.length ? `<p>Modalidades: ${mods.map(c => `<span class="pill">${esc(c)}</span>`).join(' ')}</p>` : ''}
+      ${u.strengths ? `<p>Pontos fortes: <b>${esc(u.strengths)}</b></p>` : ''}
+      ${u.bio ? `<h2>📖 Sobre</h2><p>${esc(u.bio)}</p>` : ''}
+      <h2>📊 Números do Apito</h2>
+      ${table(['Jogos', 'Amarelos', 'Vermelhos', 'Pênaltis', 'Finais', 'Média ⭐'],
+        [st.jogos || 0, st.amarelos || 0, st.vermelhos || 0, st.penaltisMarcados || 0, st.finais || 0, u.ratingAvg || '—'])}`;
+  }
+
+  if (kind === 'olheiro') {
+    const mods = arrVal(u.modalities);
+    const contato = [u.contactPhone, u.contactInstagram, u.contactEmail || u.email].filter(Boolean).map(esc).join(' · ');
+    return `
+      <h2>🔎 Quem é este olheiro</h2>
+      <p>
+        ${u.club ? `Clube / Empresa: <b>${esc(u.club)}</b> · ` : ''}
+        ${u.scoutRole ? `Cargo: <b>${esc(u.scoutRole)}</b> · ` : ''}
+        ${u.city ? `Base: <b>${esc(u.city)}${u.state ? '/' + esc(u.state) : ''}</b>` : ''}
+      </p>
+      <p>
+        ${u.scoutRegions ? `Regiões que avalia: <b>${esc(u.scoutRegions)}</b> · ` : ''}
+        ${u.scoutPositions ? `Posições que busca: <b>${esc(u.scoutPositions)}</b>` : ''}
+      </p>
+      ${mods.length ? `<p>Modalidades: ${mods.map(c => `<span class="pill">${esc(c)}</span>`).join(' ')}</p>` : ''}
+      ${contato ? `<p>Contato: <b>${contato}</b></p>` : ''}
+      ${u.bio ? `<h2>📖 Sobre</h2><p>${esc(u.bio)}</p>` : ''}`;
+  }
+
+  // jogador / goleiro
+  const isGK = isGoalkeeper(u);
+  return `
+    <h2>📋 Dados do Atleta</h2>
+    <p>
+      ${u.age ? `Idade: <b>${u.age} anos</b> · ` : ''}
+      ${u.height ? `Altura: <b>${u.height} cm</b> · ` : ''}
+      ${u.weight ? `Peso: <b>${u.weight} kg</b> · ` : ''}
+      ${u.foot ? `Perna boa: <b>${esc(u.foot)}</b> · ` : ''}
+      ${u.fee ? `Cachê: <b>${esc(u.fee)}</b>` : ''}
+    </p>
+    <p>
+      ${u.nationality ? `Nacionalidade: <b>${esc(u.nationality)}</b> · ` : ''}
+      ${u.birthdate ? `Nascimento: <b>${fmtDateBR(u.birthdate)}</b> · ` : ''}
+      ${u.club ? `Clube atual: <b>${esc(u.club)}</b> · ` : ''}
+      ${u.shirtNumber ? `Camisa: <b>nº ${esc(u.shirtNumber)}</b>` : ''}
+    </p>
+    ${u.teams ? `<p>Times: <b>${esc(u.teams)}</b></p>` : ''}
+    ${u.strengths ? `<p>Pontos fortes: <b>${esc(u.strengths)}</b></p>` : ''}
+    ${u.bio ? `<h2>📖 História no Futebol</h2><p>${esc(u.bio)}</p>` : ''}
+    <h2>📊 Estatísticas de Carreira</h2>
+    ${table(['Jogos', isGK ? 'Defesas' : 'Gols', isGK ? 'Pênaltis Pegos' : 'Assistências', 'Títulos', 'Média ⭐', 'Seguidores'],
+      [st.jogos || 0, isGK ? (st.defesas || 0) : (st.gols || 0), isGK ? (st.penaltisDefendidos || 0) : (st.assistencias || 0), st.titulos || 0, u.ratingAvg || '—', u.followers || 0])}`;
+}
+
+function resumeDocName(u) {
+  const k = roleKind(u);
+  return k === 'tecnico' ? 'Portfólio' : k === 'arbitro' ? 'Súmula do Árbitro' : k === 'olheiro' ? 'Cartão de Visita' : 'Currículo';
+}
+
 function openResumePdf() {
   const { user: u, achievements } = window._lastProfile || {};
   if (!u) return;
-  const st = u.stats || {};
-  const isGK = u.role === 'goleiro' || u.position === 'Goleiro';
   const earned = (achievements || []).filter(a => a.earned);
   const w = window.open('', '_blank');
   w.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">
-    <title>Currículo — ${esc(u.name)}</title>
+    <title>${resumeDocName(u)} — ${esc(u.name)}</title>
     <style>
       body { font-family: Arial, sans-serif; color: #0f172a; margin: 32px; background: #fff; }
       .head { display: flex; gap: 22px; align-items: center; border-bottom: 4px solid #059669; padding-bottom: 18px; }
@@ -3053,34 +3842,13 @@ function openResumePdf() {
         <img src="${u.photo || '/img/logo.png'}">
         <div>
           <h1>${esc(u.name)} ${u.nickname ? `<span class="nick">"${esc(u.nickname)}"</span>` : ''}</h1>
-          <div class="meta">${ROLES[u.role]?.label || ''} · ${esc(u.position || '')} · Nota Geral OVR: <b>${u.overall}</b></div>
+          <div class="meta">${ROLES[u.role]?.label || ''} · ${esc(u.position || '')}${roleKind(u) === 'olheiro' ? '' : ` · ${roleKind(u) === 'jogador' ? 'Nota Geral OVR' : 'Nível'}: <b>${u.overall}</b>`}</div>
           <div class="meta">${u.city ? '📍 ' + esc(u.city) + '/' + esc(u.state || '') : ''} ${u.level ? '· Nível: ' + esc(u.level) : ''} · Contato: ${esc(u.email)}</div>
         </div>
       </div>
-      <h2>📋 Dados do Atleta</h2>
-      <p>
-        ${u.age ? `Idade: <b>${u.age} anos</b> · ` : ''}
-        ${u.height ? `Altura: <b>${u.height} cm</b> · ` : ''}
-        ${u.weight ? `Peso: <b>${u.weight} kg</b> · ` : ''}
-        ${u.foot ? `Perna boa: <b>${esc(u.foot)}</b> · ` : ''}
-        ${u.fee ? `Cachê: <b>${esc(u.fee)}</b>` : ''}
-      </p>
-      <p>
-        ${u.nationality ? `Nacionalidade: <b>${esc(u.nationality)}</b> · ` : ''}
-        ${u.birthdate ? `Nascimento: <b>${fmtDateBR(u.birthdate)}</b> · ` : ''}
-        ${u.club ? `Clube atual: <b>${esc(u.club)}</b> · ` : ''}
-        ${u.shirtNumber ? `Camisa: <b>nº ${esc(u.shirtNumber)}</b>` : ''}
-      </p>
-      ${u.teams ? `<p>Times: <b>${esc(u.teams)}</b></p>` : ''}
-      ${u.strengths ? `<p>Pontos fortes: <b>${esc(u.strengths)}</b></p>` : ''}
-      ${u.bio ? `<h2>📖 História no Futebol</h2><p>${esc(u.bio)}</p>` : ''}
-      <h2>📊 Estatísticas de Carreira</h2>
-      <table>
-        <tr><th>Jogos</th><th>${isGK ? 'Defesas' : 'Gols'}</th><th>${isGK ? 'Pênaltis Pegos' : 'Assistências'}</th><th>Títulos</th><th>Média ⭐</th><th>Seguidores</th></tr>
-        <tr><td>${st.jogos || 0}</td><td>${isGK ? (st.defesas || 0) : (st.gols || 0)}</td><td>${isGK ? (st.penaltisDefendidos || 0) : (st.assistencias || 0)}</td><td>${st.titulos || 0}</td><td>${u.ratingAvg || '—'}</td><td>${u.followers || 0}</td></tr>
-      </table>
+      ${resumeBodyHtml(u)}
       ${earned.length ? `<h2>🏅 Medalhas Conquistadas</h2><p>${earned.map(a => `<span class="pill">${a.emoji} ${esc(a.title)}</span>`).join(' ')}</p>` : ''}
-      <div class="foot">Currículo gerado pela plataforma Vitrine FC ⚽ · ${new Date().toLocaleDateString('pt-BR')}</div>
+      <div class="foot">${resumeDocName(u)} gerado pela plataforma Vitrine FC ⚽ · ${new Date().toLocaleDateString('pt-BR')}</div>
       <div class="noprint" style="text-align:center;margin-top:20px"><button onclick="window.print()" style="padding:10px 24px;font-size:16px;background:#059669;color:#fff;border:none;border-radius:8px;cursor:pointer">🖨️ Imprimir / Salvar em PDF</button></div>
     </body></html>`);
   w.document.close();

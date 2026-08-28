@@ -1057,6 +1057,11 @@ function publicEvent(ev, meId) {
 app.post('/api/events', auth, (req, res) => {
   const { type, modality, title, description, neededPositions, city, state, place, address, date, fee, lat, lng } = req.body;
   if (!title || !city || !date) return res.status(400).json({ error: 'Preencha título, cidade e data.' });
+  // Evento com data/hora que já passou não pode ser criado: assim que o
+  // horário do jogo passa, ele sai da lista sozinho (ver GET /api/events).
+  if (!date || +date < Date.now()) {
+    return res.status(400).json({ error: 'A data/hora do jogo já passou. Escolha uma data futura — depois do horário marcado o evento sai da lista automaticamente.' });
+  }
 
   let positions = [];
   if (Array.isArray(neededPositions)) {
@@ -1093,7 +1098,9 @@ app.post('/api/events', auth, (req, res) => {
 
 app.get('/api/events', auth, (req, res) => {
   const { city, type, modality, position, myEvents } = req.query;
-  let list = db.events.filter(ev => ev.date > Date.now() - 86400000);
+  // ⏰ Auto-expiração: passou o dia e o horário do jogo, o evento sai da
+  // lista sozinho — sem precisar que o organizador apague nada.
+  let list = db.events.filter(ev => ev.date > Date.now());
   if (city) list = list.filter(ev => (ev.city || '').toLowerCase().includes(city.toLowerCase()));
   if (type) list = list.filter(ev => ev.type === type);
   if (modality) list = list.filter(ev => (ev.modality || 'campo') === modality);
@@ -1272,6 +1279,19 @@ app.put('/api/proposals/:id', auth, (req, res) => {
     '/events'
   );
 
+  // 💬 Ao ACEITAR, já abre automaticamente a conversa entre organizador e
+  // candidato: a mensagem abaixo ancora o chat dos dois lados.
+  if (status === 'aceita') {
+    db.messages.push({
+      id: uid(),
+      fromId: req.user.id,
+      toId: prop.fromId,
+      text: `✅ Proposta ACEITA${eventText}! Bora combinar os detalhes por aqui. ⚽`,
+      read: false,
+      createdAt: Date.now()
+    });
+  }
+
   saveDB();
   res.json(prop);
 });
@@ -1348,11 +1368,18 @@ app.get('/api/users/:id', auth, (req, res) => {
 });
 
 // ---- Busca de talentos ----
+// Regra da aba de busca: SÓ aparece quem se vinculou no perfil como
+// "Disponível para contratação" e/ou "Aceita jogo avulso (freela)".
+// Quem não marcou nenhuma das duas não aparece em nada aqui.
+// Olheiros continuam aparecendo quando buscados de propósito (perfil público).
 app.get('/api/search', auth, (req, res) => {
-  const { q, role, position, city, level, availableFreela, scouts } = req.query;
+  const { q, role, position, city, level, availableFreela, availableHire, availability, scouts } = req.query;
   const wantScouts = role === 'olheiro' || scouts === '1';
-  // Olheiros só aparecem quando são buscados de propósito e o perfil deles é público.
-  let list = db.users.filter(u => (u.role !== 'olheiro') || (wantScouts && u.publicProfile !== false));
+  let list = db.users.filter(u => {
+    if (u.role === 'olheiro') return wantScouts && u.publicProfile !== false;
+    if (u.isAdmin || u.id === 'admin_vitrine' || u.role === 'admin') return false;
+    return !!(u.availableHire || u.availableFreela);
+  });
   if (q) {
     const s = q.toLowerCase();
     list = list.filter(u =>
@@ -1369,17 +1396,26 @@ app.get('/api/search', auth, (req, res) => {
   if (position) list = list.filter(u => u.position === position || (u.positions2 || '').includes(position));
   if (city) list = list.filter(u => (u.city || '').toLowerCase().includes(city.toLowerCase()));
   if (level) list = list.filter(u => u.level === level);
-  if (availableFreela === '1' || availableFreela === 'true') list = list.filter(u => u.availableFreela);
+  // Filtro de disponibilidade: contratacao / freela / (vazio = os dois)
+  let avail = availability || '';
+  if (!avail && (availableFreela === '1' || availableFreela === 'true')) avail = 'freela';
+  if (!avail && (availableHire === '1' || availableHire === 'true')) avail = 'contratacao';
+  if (avail === 'contratacao') list = list.filter(u => u.availableHire);
+  else if (avail === 'freela') list = list.filter(u => u.availableFreela);
   res.json(list.map(publicUser));
 });
 
-// ---- Destaques da semana (trending) ----
+// ---- Rankings da busca (contratação e freela) ----
+// Três listas separadas: geral, disponíveis p/ contratação e freela,
+// ordenadas pela nota geral (OVR) — o "1º, 2º, 3º lugar" da aba de busca.
 app.get('/api/trending', auth, (req, res) => {
-  const list = db.users.filter(u => u.role !== 'olheiro' && u.role !== 'admin' && !u.isAdmin)
-    .map(publicUser)
-    .sort((a, b) => (b.overall || 0) - (a.overall || 0))
-    .slice(0, 10);
-  res.json(list);
+  const base = db.users.filter(u => u.role !== 'olheiro' && u.role !== 'admin' && !u.isAdmin && u.id !== 'admin_vitrine');
+  const byOvr = arr => arr.map(publicUser).sort((a, b) => (b.overall || 0) - (a.overall || 0)).slice(0, 10);
+  res.json({
+    geral: byOvr(base),
+    contratacao: byOvr(base.filter(u => u.availableHire)),
+    freela: byOvr(base.filter(u => u.availableFreela))
+  });
 });
 
 // ============================================================

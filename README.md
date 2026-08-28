@@ -82,9 +82,28 @@ Os dados e uploads passam a viver lá e nunca são apagados nos deploys.
 ## 📱 Outras formas de usar
 - **PWA:** abra o site no celular → menu ⋮ → *Adicionar à tela inicial*
 - **APK Android:** [baixar VitrineFC.apk](https://github.com/jonhykelvismacielsaar/Jonhy/raw/main/apk/VitrineFC.apk)
-  *(depois de instalar, se aparecer "Sem conexão", cole o endereço
-  `https://vitrinefc.onrender.com` na tela do app — pronto, funciona para sempre)*
+  *(já vem com o endereço definitivo **https://vitrinefc.onrender.com** de fábrica —
+  era um endereço antigo de teste que fazia o app "começar de novo".
+  Se aparecer "Sem conexão", é só o site ainda não estar publicado: faça o
+  deploy acima primeiro. Se um dia o endereço mudar, cole o novo na tela do
+  app, sem precisar reinstalar.)*
 - Guia completo de nuvem + Play Store: [GUIA-NUVEM-E-APK.md](GUIA-NUVEM-E-APK.md)
+
+### ❓ Por que o site "resetava" quando trocava de rede?
+O app estava sendo aberto por um **endereço temporário de desenvolvimento**
+(`https://3000-….e2b.app`), que só existia enquanto aquele servidor de teste
+estava ligado. Em rede nova, celular novo ou sessão nova, esse endereço
+morria — e parecia que o site tinha "voltado ao início", porque o banco de
+dados vivia naquele servidor temporário.
+
+**A cura definitiva** (uma vez só):
+1. Publique o site no Render pelo botão acima → endereço fixo
+   **https://vitrinefc.onrender.com** acessível do mundo inteiro;
+2. Configure o backup no GitHub (`DB_GITHUB_TOKEN` + `DB_GITHUB_REPO`) →
+   os cadastros sobrevivem a qualquer reinício, de qualquer rede, para sempre.
+
+A partir daí: qualquer celular, em qualquer rede, em qualquer país, vê o
+**mesmo** banco de dados e os mesmos perfis.
 
 ## 🧪 Rodar no seu computador
 ```bash
@@ -109,3 +128,24 @@ node server.js
 - **Perfil do olheiro:** aparece na busca (filtro **🔎 Olheiros / Clubes**) com
   WhatsApp, Instagram e e-mail clicáveis para o atleta falar direto.
 - **Painel do Administrador (🛡️ Aba Admin):** Permite gerenciar usuários (promover/remover admin, selo verificado, excluir contas em cascata), posts (trocar categoria profissional/pelada, moderar comentários e excluir publicações), eventos (peneiras e jogos) e stories (com lista de visualizadores e limpeza de expirados).
+
+## 🆕 Novidades desta versão
+
+- **🔎 Busca só com vinculados:** na aba Buscar só aparece quem marcou no perfil
+  **✅ Disponível para contratação** e/ou **⚡ Aceita jogo avulso (freela)**.
+  Quem não marcou nenhuma das duas não aparece em hipótese nenhuma. É possível
+  filtrar só contratação ou só freela.
+- **🏆 Dois rankings na busca:** um p/ **Contratação** e outro p/ **Freela**
+  (1º 🥇, 2º 🥈, 3º 🥉…), com miniatura e nome clicáveis que entram direto
+  no perfil da pessoa.
+- **🖼️ Resultados em miniatura:** a lista de resultados virou linhas compactas
+  com uma miniaturinha do perfil — toque no nome ou na miniatura e entra no
+  perfil. O card mostra ✅ e/ou ⚡ conforme o que a pessoa marcou.
+- **🗺️ Mapa por cidade na busca:** digitou o nome da cidade, o mapa já vai até
+  ela e mostra os pontos próximos com jogos cadastrados (até 60 km de raio).
+- **⏰ Eventos auto-expiram:** ao criar um jogo a data já vem preenchida com
+  **hoje**; depois que o dia e o horário do jogo passam, o evento sai da lista
+  sozinho (e a lista se atualiza a cada 30s).
+- **💬 Aceitou, conversou:** no momento em que o organizador **aceita** a
+  proposta/candidatura, a conversa abre automaticamente no chat com o jogador
+  (e o jogador recebe a mensagem de aceite). Recusar continua possível.

@@ -9,7 +9,7 @@ let TOKEN = localStorage.getItem('vfc_token') || null;
 let ME = null;
 let currentTab = 'feed';
 let profileMode = 'feed';
-let chatPoll = null, badgePoll = null, feedPoll = null;
+let chatPoll = null, badgePoll = null, feedPoll = null, eventsPoll = null;
 
 const ROLES = {
   jogador: { emoji: '🏃', label: 'Jogador' },
@@ -321,7 +321,7 @@ function starsHtml(avg, count) {
 function logout() {
   TOKEN = null; ME = null;
   localStorage.removeItem('vfc_token');
-  clearInterval(chatPoll); clearInterval(badgePoll); clearInterval(feedPoll);
+  clearInterval(chatPoll); clearInterval(badgePoll); clearInterval(feedPoll); clearInterval(eventsPoll);
   renderSplash();
 }
 
@@ -722,6 +722,7 @@ function showTab(tab) {
   currentTab = tab;
   clearInterval(chatPoll);
   clearInterval(feedPoll);
+  clearInterval(eventsPoll);
   document.querySelectorAll('.nav button').forEach(b => b.classList.remove('on'));
   const nb = document.getElementById('nav-' + tab);
   if (nb) nb.classList.add('on');
@@ -1262,7 +1263,7 @@ async function likeReel(id, btn) {
 // ============================================================
 // PENEIRAS & MONTAR TIME 📍 (CAMPO, SOCIETY, QUADRA)
 // ============================================================
-let evMap = null, evView = 'list', evModalityFilter = '', evTypeFilter = '', evCityFilter = '', evPositionFilter = '';
+let evMap = null, evView = 'list', evModalityFilter = '', evTypeFilter = '', evCityFilter = '', evPositionFilter = '', evMyOnly = false;
 
 async function renderEvents() {
   const c = $('#content');
@@ -1295,8 +1296,8 @@ async function renderEvents() {
 
     <!-- Filters & Search -->
     <div class="filters mt">
-      <input id="ev-city" placeholder="📍 Filtrar por cidade…" value="${esc(evCityFilter)}" oninput="evCityFilter=this.value; loadEvents();">
-      <select id="ev-type" onchange="evTypeFilter=this.value; loadEvents();">
+      <input id="ev-city" placeholder="📍 Filtrar por cidade…" value="${esc(evCityFilter)}" oninput="evMyOnly=false; evCityFilter=this.value; loadEvents();">
+      <select id="ev-type" onchange="evMyOnly=false; evTypeFilter=this.value; loadEvents();">
         <option value="">🥅 Peneiras & Jogos</option>
         <option value="jogo" ${evTypeFilter === 'jogo' ? 'selected' : ''}>⚽ Jogos / Montar Time</option>
         <option value="peneira" ${evTypeFilter === 'peneira' ? 'selected' : ''}>🥅 Peneiras / Avaliações</option>
@@ -1316,23 +1317,23 @@ async function renderEvents() {
     <div id="ev-list"><p class="empty">Carregando jogos e peneiras… ⏳</p></div>`;
 
   loadEvents();
+  // ⏰ A lista se atualiza sozinha: jogo que passou do horário sai da lista
+  // automaticamente, sem precisar recarregar o app.
+  eventsPoll = setInterval(loadEventsSilent, 30000);
 }
 
 function filterEvModality(mod) {
   evModalityFilter = mod;
+  evMyOnly = false;
   document.querySelectorAll('.modality-filter-strip .mod-pill').forEach(b => b.classList.remove('on'));
   event.target.classList.add('on');
   loadEvents();
 }
 
 function showMyEventsOnly() {
-  const params = new URLSearchParams();
-  params.set('myEvents', '1');
-  api('/events?' + params).then(events => {
-    window._events = events;
-    renderEventList(events);
-    toast(`Exibindo ${events.length} jogo(s) criados por você 👑`);
-  });
+  evMyOnly = true;
+  loadEvents();
+  toast('Exibindo só os jogos criados por você 👑');
 }
 
 function toggleEvView() {
@@ -1344,19 +1345,41 @@ function toggleEvView() {
 }
 
 let evTimer = null;
+let _eventsSig = '';
+function eventsQuery() {
+  const params = new URLSearchParams();
+  if (evMyOnly) params.set('myEvents', '1');
+  if (evCityFilter) params.set('city', evCityFilter);
+  if (evTypeFilter) params.set('type', evTypeFilter);
+  if (evModalityFilter) params.set('modality', evModalityFilter);
+  if (evPositionFilter) params.set('position', evPositionFilter);
+  return params;
+}
+function eventsSignature(events) {
+  return (events || []).map(e => `${e.id}:${e.date}:${e.proposalsCount || 0}:${(e.participants || []).length}`).join('|');
+}
 function loadEvents() {
   clearTimeout(evTimer);
   evTimer = setTimeout(async () => {
-    const params = new URLSearchParams();
-    if (evCityFilter) params.set('city', evCityFilter);
-    if (evTypeFilter) params.set('type', evTypeFilter);
-    if (evModalityFilter) params.set('modality', evModalityFilter);
-    if (evPositionFilter) params.set('position', evPositionFilter);
-    const events = await api('/events?' + params);
+    const events = await api('/events?' + eventsQuery());
     window._events = events;
+    _eventsSig = eventsSignature(events);
     renderEventList(events);
     renderEventMap(events);
   }, 250);
+}
+async function loadEventsSilent() {
+  if (currentTab !== 'events' || !document.getElementById('ev-list')) return;
+  try {
+    const events = await api('/events?' + eventsQuery());
+    const sig = eventsSignature(events);
+    if (sig !== _eventsSig) {
+      _eventsSig = sig;
+      window._events = events;
+      renderEventList(events);
+      renderEventMap(events);
+    }
+  } catch {}
 }
 
 function eventCardHtml(ev) {
@@ -1499,7 +1522,7 @@ function renderEventList(events) {
   const el = $('#ev-list');
   if (!el) return;
   el.innerHTML = events.length ? events.map(eventCardHtml).join('')
-    : '<div class="empty"><span class="big">📍</span>Nenhum racha ou peneira encontrado com esses filtros.<br>Divulgue o primeiro da sua região!</div>';
+    : '<div class="empty"><span class="big">📍</span>Nenhum racha ou peneira encontrado com esses filtros.<br>Jogo que já passou do horário sai da lista sozinho.<br>Divulgue o primeiro da sua região!</div>';
 }
 
 function renderEventMap(events) {
@@ -1525,6 +1548,15 @@ async function delEvent(id) {
 }
 
 // ---------- Modal de Criação de Evento (com seleção de modalidade e posições) ----------
+// Data/hora já vem preenchida com AGORA (o dia de hoje). Depois que o
+// horário do jogo passa, o evento sai da lista sozinho.
+function nowDateTimeLocal() {
+  const d = new Date();
+  d.setSeconds(0, 0);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function openNewEvent() {
   let pick = null, pickMap = null, marker = null;
   let selectedModality = 'campo';
@@ -1616,7 +1648,7 @@ function openNewEvent() {
       <p class="sub" style="margin-top:-4px">Confira o pino: você pode arrastá-lo ou tocar no mapa para ajustar o ponto exato.</p>
 
       <div class="row2">
-        <div><label>Data e hora</label><input id="ne-date" type="datetime-local"></div>
+        <div><label>Data e hora <span class="opt">(já vem preenchida com hoje)</span></label><input id="ne-date" type="datetime-local" value="${nowDateTimeLocal()}" min="${nowDateTimeLocal()}"></div>
         <div><label>Custo por jogador</label><input id="ne-fee" placeholder="Ex: Gratuito / R$ 15"></div>
       </div>
 
@@ -1979,7 +2011,7 @@ function openEventProposalsDrawer(eventId, title) {
 
       ${p.status === 'pendente' ? `
         <div class="row2 mt" style="margin-top:8px">
-          <button class="btn btn-primary btn-sm" onclick="acceptCandidate('${p.id}', '${eventId}', '${esc(p.from?.name || '')}')">
+          <button class="btn btn-primary btn-sm" onclick="acceptCandidate('${p.id}', '${eventId}', '${esc(p.from?.name || '')}', '${p.from?.id}')">
             ✅ Aceitar & Escalar
           </button>
           <button class="btn btn-danger btn-sm" onclick="rejectCandidate('${p.id}', '${eventId}')">
@@ -1992,12 +2024,15 @@ function openEventProposalsDrawer(eventId, title) {
     </div>`).join('');
 }
 
-async function acceptCandidate(propId, eventId, candidateName) {
+async function acceptCandidate(propId, eventId, candidateName, candidateId) {
   try {
     await api('/proposals/' + propId, { method: 'PUT', body: { status: 'aceita' } });
     toast(`✅ ${candidateName} foi aceito e escalado no time!`);
     document.querySelector('.modal-bg')?.remove();
-    loadEvents();
+    // 💬 Na hora que o organizador ACEITA, a conversa com o jogador abre
+    // sozinha para combinar os detalhes do jogo.
+    if (candidateId) openChat(candidateId, candidateName || 'Jogador');
+    else loadEvents();
   } catch (e) { toast('Erro: ' + e.message); }
 }
 
@@ -2076,8 +2111,8 @@ async function renderSearch() {
   const c = $('#content');
   c.innerHTML = `
     <h2>Buscar Talentos 🔎</h2>
-    <p class="sub">Encontre talentos em todo o Brasil. Toque em 🆚 em dois jogadores para compará-los!</p>
-    <div id="trending"></div>
+    <p class="sub">Só aparece quem marcou no perfil <b>✅ disponível p/ contratação</b> e/ou <b>⚡ freela</b>. Digite uma cidade e o mapa mostra os jogos da região!</p>
+    <div id="rankings"></div>
     <div class="filters">
       <input class="full" id="s-q" placeholder="🔎 Nome, apelido, time…" oninput="doSearch()">
       <select id="s-role" onchange="doSearch()">
@@ -2092,12 +2127,21 @@ async function renderSearch() {
         <option value="">Todas as posições</option>
         ${POSITIONS.map(p => `<option>${p}</option>`).join('')}
       </select>
-      <input id="s-city" placeholder="Cidade" oninput="doSearch()">
+      <input id="s-city" placeholder="📍 Cidade (abre o mapa)" oninput="onSearchCityInput()">
       <select id="s-level" onchange="doSearch()">
         <option value="">Todos os níveis</option>
         ${LEVELS.map(l => `<option>${l}</option>`).join('')}
       </select>
-      <label class="check full" style="margin:0"><input type="checkbox" id="s-freela" onchange="doSearch()"> ⚡ Só disponíveis para jogo avulso (freela)</label>
+      <select id="s-avail" class="full" onchange="doSearch()">
+        <option value="">🤝 Vinculados: contratação ou freela</option>
+        <option value="contratacao">✅ Só disponíveis p/ contratação</option>
+        <option value="freela">⚡ Só disponíveis p/ freela (avulso)</option>
+      </select>
+    </div>
+    <div id="s-map-wrap" style="display:none">
+      <div class="s-map-head">🗺️ <b id="s-map-title">Mapa da região</b></div>
+      <div id="s-map"></div>
+      <div class="s-map-note" id="s-map-note"></div>
     </div>
     <div id="s-results"></div>`;
   doSearch();
@@ -2170,53 +2214,87 @@ async function openCompare() {
 
 async function loadTrending() {
   try {
-    const list = await api('/trending');
-    const el = $('#trending');
-    if (!el || !list.length) return;
-    _trendingData = list;
-    renderTrending();
+    _rankData = await api('/trending');
+    renderRankings();
   } catch {}
 }
 
-let _trendingData = [];
-let _trendingOpen = false;
+let _rankData = null;
+let _rankOpen = { contratacao: false, freela: false };
 
-function toggleTrending() {
-  _trendingOpen = !_trendingOpen;
-  renderTrending();
+function toggleRank(kind) {
+  _rankOpen[kind] = !_rankOpen[kind];
+  renderRankings();
 }
 
-function renderTrending() {
-  const el = $('#trending');
-  if (!el || !_trendingData.length) return;
+// Uma linha do ranking: 🥇 miniatura + nome + nota. Tocar no nome ou na
+// miniatura já entra no perfil da pessoa.
+function rankRowsHtml(list, kind) {
   const MEDALS = ['🥇', '🥈', '🥉'];
-  const visiveis = _trendingOpen ? _trendingData : _trendingData.slice(0, 5);
+  const visiveis = _rankOpen[kind] ? list : list.slice(0, 5);
+  return `
+    <ol class="rank-list">
+      ${visiveis.map((u, i) => `
+        <li class="rank-row ${i < 3 ? 'top' + (i + 1) : ''}" onclick="renderProfile('${u.id}')">
+          <span class="rank-pos">${MEDALS[i] || i + 1}</span>
+          <img class="rank-thumb" src="${u.photo || '/img/logo.png'}" alt="" loading="lazy">
+          <span class="rank-name">
+            <b>${esc(u.nickname || u.name)}${u.verified ? ' ✅' : ''}</b>
+            <small>${esc([u.position, u.city].filter(Boolean).join(' · '))}</small>
+          </span>
+          <span class="rank-ovr">${u.overall}</span>
+        </li>`).join('')}
+    </ol>
+    ${list.length > 5 ? `
+      <button type="button" class="rank-more" onclick="toggleRank('${kind}')">
+        ${_rankOpen[kind] ? '▲ Mostrar menos' : `▼ Ver o top ${list.length}`}
+      </button>` : ''}`;
+}
 
-  el.innerHTML = `
+// 🏆 Dois rankings na busca: um p/ contratação e outro p/ freela — 1º, 2º, 3º…
+function renderRankings() {
+  const el = document.getElementById('rankings');
+  if (!el || !_rankData) return;
+  const boxes = [
+    { kind: 'contratacao', icon: '🤝', title: 'Ranking p/ Contratação', sub: 'disponíveis p/ contrato', list: _rankData.contratacao || [] },
+    { kind: 'freela', icon: '⚡', title: 'Ranking Freela / Avulso', sub: 'aceita jogo avulso', list: _rankData.freela || [] }
+  ];
+  el.innerHTML = boxes.map(b => `
     <div class="rank-box">
       <div class="rank-head">
-        <b>🏆 Ranking dos craques</b>
-        <span>por nota geral</span>
+        <b>${b.icon} ${b.title}</b>
+        <span>${b.sub}</span>
       </div>
-      <ol class="rank-list">
-        ${visiveis.map((u, i) => `
-          <li class="rank-row top${i + 1}" onclick="renderProfile('${u.id}')">
-            <span class="rank-pos">${MEDALS[i] || i + 1}</span>
-            <img class="rank-thumb" src="${u.photo || '/img/logo.png'}" alt="" loading="lazy">
-            <span class="rank-name">
-              <b>${esc(u.nickname || u.name)}${u.verified ? ' ✅' : ''}</b>
-              <small>${esc([u.position, u.city].filter(Boolean).join(' · '))}</small>
-            </span>
-            <span class="rank-ovr">${u.overall}</span>
-          </li>`).join('')}
-      </ol>
-      ${_trendingData.length > 5 ? `
-        <button type="button" class="rank-more" onclick="toggleTrending()">
-          ${_trendingOpen ? '▲ Mostrar menos' : `▼ Ver o top ${_trendingData.length}`}
-        </button>` : ''}
-    </div>`;
+      ${b.list.length ? rankRowsHtml(b.list, b.kind)
+        : '<p class="empty" style="padding:12px">Ninguém marcou essa disponibilidade no perfil ainda.</p>'}
+    </div>`).join('');
 }
 
+
+// ---------- Resultado compacto: miniatura pequena + nome clicável ----------
+// Tocar na miniatura, no nome ou em qualquer lugar da linha abre o perfil.
+function miniUserHtml(u) {
+  const k = roleKind(u);
+  const isScout = k === 'olheiro';
+  const sub = isScout
+    ? [u.scoutRole, u.club].filter(Boolean).map(esc).join(' · ')
+    : [u.position || ROLES[u.role]?.label || '', u.level, u.city ? u.city + '/' + (u.state || '') : '']
+      .filter(Boolean).map(esc).join(' · ');
+  return `
+  <div class="mini-user" onclick="renderProfile('${u.id}')">
+    <img class="mini-thumb ${((u.overall || 60) >= 80 || u.verified) ? 'gold' : ''}" src="${u.photo || '/img/logo.png'}" alt="" loading="lazy">
+    <div class="mini-info">
+      <b>${esc(u.nickname || u.name)} ${u.verified ? '✅' : ''} ${isScout ? '' : `<span class="ovr-mini">${u.overall}</span>`}</b>
+      <small>${ROLES[u.role]?.emoji || ''} ${sub}</small>
+      <span class="mini-badges">
+        ${isScout ? '<span class="pill rose">🔎 Olheiro / Clube</span>' : ''}
+        ${u.availableHire ? '<span class="pill green">✅ Contratação</span>' : ''}
+        ${u.availableFreela ? '<span class="pill">⚡ Freela</span>' : ''}
+      </span>
+    </div>
+    ${isScout ? '' : `<button class="vs-btn" onclick="addCompare('${u.id}', '${esc((u.nickname || u.name).split(' ')[0])}')">🆚</button>`}
+  </div>`;
+}
 
 let searchTimer = null;
 function doSearch() {
@@ -2228,32 +2306,105 @@ function doSearch() {
     if ($('#s-pos').value) params.set('position', $('#s-pos').value);
     if ($('#s-city').value) params.set('city', $('#s-city').value);
     if ($('#s-level').value) params.set('level', $('#s-level').value);
-    if ($('#s-freela').checked) params.set('availableFreela', '1');
+    if ($('#s-avail').value) params.set('availability', $('#s-avail').value);
     const users = await api('/search?' + params);
-    $('#s-results').innerHTML = users.length ? users.map(u => {
-      const k = roleKind(u);
-      const isScout = k === 'olheiro';
-      const sub = isScout
-        ? [u.scoutRole, u.club, u.scoutRegions].filter(Boolean).map(esc).join(' · ')
-        : `${esc(u.position || ROLES[u.role]?.label || '')}${u.level ? ' · ' + esc(u.level) : ''}`;
-      return `
-      <div class="player-card ${isScout ? 'scout' : ''}" onclick="renderProfile('${u.id}')" style="cursor:pointer">
-        ${avatarHtml(u)}
-        <div class="info">
-          <b>${esc(u.name)} ${u.verified ? '✅' : ''} ${isScout ? '' : `<span class="ovr-mini">${u.overall}</span>`}</b>
-          <div class="meta">${ROLES[u.role]?.emoji || ''} ${sub}${u.city ? ' · ' + esc(u.city) + '/' + esc(u.state || '') : ''}</div>
-          <div style="margin-top:4px">${starsHtml(u.ratingAvg, u.ratingCount)}</div>
-          <div style="margin-top:5px">
-            ${isScout ? '<span class="pill rose">🔎 Olheiro / Clube</span>' : ''}
-            ${u.availableHire ? `<span class="pill green">${isScout ? 'Avaliando atletas' : 'Disponível p/ contrato'}</span>` : ''}
-            ${u.availableFreela ? '<span class="pill">⚡ Freela' + (u.fee ? ' · ' + esc(u.fee) : '') + '</span>' : ''}
-          </div>
-        </div>
-        ${isScout ? '' : `<button class="vs-btn" onclick="addCompare('${u.id}', '${esc(u.name.split(' ')[0])}')">🆚</button>`}
-      </div>`;
-    }).join('')
-      : '<div class="empty"><span class="big">🥅</span>Nenhum perfil encontrado com esses filtros.</div>';
+    $('#s-results').innerHTML = users.length ? users.map(miniUserHtml).join('')
+      : '<div class="empty"><span class="big">🥅</span>Nenhum perfil encontrado com esses filtros.<br>Na busca só aparece quem marcou ✅ contratação ou ⚡ freela no perfil.</div>';
   }, 250);
+}
+
+// ---------- 🗺️ Mapa da cidade na busca ----------
+// Ao digitar o nome da cidade, o mapa vai até ela e mostra os pontos
+// próximos com jogos cadastrados.
+let sMapTimer = null, sMap = null, sMapCity = '';
+
+function onSearchCityInput() {
+  doSearch();
+  clearTimeout(sMapTimer);
+  sMapTimer = setTimeout(() => updateSearchMap($('#s-city').value.trim()), 700);
+}
+
+function distKm(lat1, lng1, lat2, lng2) {
+  const R = 6371, toRad = v => v * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function updateSearchMap(city) {
+  const wrap = document.getElementById('s-map-wrap');
+  if (!wrap) return;
+  if (!city || city.length < 3) {
+    wrap.style.display = 'none';
+    sMapCity = '';
+    return;
+  }
+  if (city === sMapCity) return;
+  sMapCity = city;
+  wrap.style.display = 'block';
+  const title = document.getElementById('s-map-title');
+  const note = document.getElementById('s-map-note');
+  title.textContent = `Procurando "${city}" no mapa…`;
+  note.textContent = '';
+  try {
+    const centro = await geocodificar(city.includes(',') ? city : city + ', Brasil');
+    if (sMapCity !== city) return; // usuário já digitou outra coisa
+    if (!centro) {
+      title.textContent = `Cidade "${city}"`;
+      note.textContent = 'Não achamos essa cidade no mapa — confira a grafia.';
+      return;
+    }
+    title.textContent = `Jogos perto de ${centro.nome.split(',')[0]}`;
+    const events = await api('/events');
+    if (sMapCity !== city) return;
+    const alvo = city.toLowerCase();
+    const prox = events.filter(ev => {
+      const evCity = (ev.city || '').toLowerCase();
+      if (evCity && (evCity.includes(alvo) || alvo.includes(evCity))) return true;
+      if (ev.lat && ev.lng) return distKm(centro.lat, centro.lng, ev.lat, ev.lng) <= 60;
+      return false;
+    });
+
+    if (typeof L === 'undefined') {
+      note.textContent = 'Mapa indisponível agora — verifique sua conexão.';
+      return;
+    }
+    if (sMap) { sMap.remove(); sMap = null; }
+    sMap = L.map('s-map').setView([centro.lat, centro.lng], 12);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(sMap);
+
+    let comPonto = 0;
+    window._searchMapEvents = prox;
+    prox.forEach((ev, idx) => {
+      const mod = MODALITIES[ev.modality] || MODALITIES.campo;
+      const d = new Date(ev.date);
+      if (ev.lat && ev.lng) {
+        comPonto++;
+        const m = L.marker([ev.lat, ev.lng]).addTo(sMap);
+        m.bindPopup(
+          `<b>${mod.emoji} ${esc(ev.title)}</b><br>` +
+          `📍 ${esc(ev.place || ev.city)}<br>` +
+          `📅 ${d.toLocaleDateString('pt-BR')} às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}<br>` +
+          `<a href="#" onclick="searchMapGoEvents(${idx});return false" style="color:#00f59b;font-weight:700">Ver na aba Jogos ➜</a>`
+        );
+      }
+    });
+    note.innerHTML = !prox.length
+      ? 'Nenhum jogo cadastrado perto desta cidade ainda. Divulgue o primeiro! ⚽'
+      : `📍 <b>${prox.length}</b> jogo(s) na região${comPonto ? '' : ' (sem ponto exato no mapa)'}.`;
+    setTimeout(() => sMap && sMap.invalidateSize(), 80);
+  } catch (e) {
+    if (sMapCity === city) {
+      title.textContent = `Cidade "${city}"`;
+      note.textContent = 'Não deu para carregar o mapa agora. Tente de novo.';
+    }
+  }
+}
+
+function searchMapGoEvents(idx) {
+  const ev = (window._searchMapEvents || [])[idx];
+  evCityFilter = ev ? (ev.city || '') : '';
+  showTab('events');
 }
 
 // ============================================================
@@ -3170,6 +3321,7 @@ async function renderConvs() {
 
 async function openChat(otherId, otherName) {
   clearInterval(chatPoll);
+  clearInterval(eventsPoll);
   currentTab = 'chat';
   document.querySelectorAll('.nav button').forEach(b => b.classList.remove('on'));
   document.getElementById('nav-chat')?.classList.add('on');
@@ -3270,18 +3422,20 @@ async function renderProps() {
 
         ${received && p.status === 'pendente' ? `
           <div class="row2 mt" style="margin-top:8px">
-            <button class="btn btn-primary btn-sm" onclick="answerProp('${p.id}', 'aceita')">✅ Aceitar Proposta</button>
+            <button class="btn btn-primary btn-sm" onclick="answerProp('${p.id}', 'aceita', '${other?.id}', '${esc(other?.name || '')}')">✅ Aceitar Proposta</button>
             <button class="btn btn-danger btn-sm" onclick="answerProp('${p.id}', 'recusada')">❌ Recusar</button>
           </div>` : ''}
       </div>`;
     }).join('') : '<div class="empty"><span class="big">🤝</span>Nenhuma proposta recebida ou enviada ainda.<br>Divulgue seus jogos ou envie propostas para outros craques!</div>'}`;
 }
 
-async function answerProp(id, status) {
+async function answerProp(id, status, otherId, otherName) {
   await api('/proposals/' + id, { method: 'PUT', body: { status } });
   toast(status === 'aceita' ? 'Proposta aceita! 🎉 O jogador foi escalado no time.' : 'Proposta recusada.');
-  renderProps();
   refreshBadges();
+  // 💬 Aceitou a proposta? A conversa com a pessoa abre automaticamente.
+  if (status === 'aceita' && otherId) openChat(otherId, otherName || '');
+  else renderProps();
 }
 
 function openProposal(toId, toName) {
